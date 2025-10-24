@@ -10,7 +10,7 @@ TechCompressor aims to combine multiple classic and modern compression methods i
 
 1. ✅ **Project setup & structure** *(Phase 1 - Complete)*
 2. ✅ **LZW** algorithm implementation *(Phase 2 - Complete)*
-3. **Huffman** coding implementation
+3. ✅ **Huffman** coding implementation *(Phase 3 - Complete)*
 4. **Arithmetic** coding implementation
 5. **DEFLATE** integration (LZ77 + Huffman)
 6. **AES-based password protection** for compressed data
@@ -97,6 +97,107 @@ The test suite includes:
 - ✅ All byte value coverage
 
 Run with: `pytest tests/test_lzw.py`
+
+## 📚 Phase 3 – Huffman Coding
+
+### Overview
+
+Phase 3 implements **Huffman coding**, a variable-length prefix coding algorithm that assigns shorter codes to more frequent bytes, achieving optimal compression for data with non-uniform frequency distributions.
+
+### How Huffman Coding Works
+
+**Compression:**
+1. Build frequency table by counting occurrences of each byte
+2. Construct binary tree using priority queue (min-heap):
+   - Create leaf node for each unique byte with its frequency
+   - Repeatedly combine two lowest-frequency nodes
+   - Parent node has sum of children's frequencies
+3. Generate prefix codes by traversing tree (left='0', right='1')
+4. Encode input data using generated codes
+5. Serialize tree structure for decompression
+6. Pack bits into bytes with padding
+
+**Decompression:**
+1. Extract and deserialize Huffman tree from compressed data
+2. Unpack compressed bits
+3. Traverse tree using bits to decode original bytes
+4. Reset to root after each decoded byte
+
+### Special Cases
+
+- **Single unique byte**: Tree is single node, code is "0"
+- **Padding**: Last byte may have padding bits (stored in header)
+- **Tree serialization**: Pre-order traversal with markers (0x01=leaf+byte, 0x00=internal)
+
+### Output Format
+
+Compressed files use the following format:
+- **4 bytes**: Magic header `"TCH1"` (TechCompressor Huffman v1)
+- **4 bytes**: Tree size (unsigned int, big-endian)
+- **N bytes**: Serialized Huffman tree
+- **1 byte**: Padding count (0-7 bits)
+- **M bytes**: Huffman-encoded compressed data
+
+### Usage Example
+
+```python
+from techcompressor.core import compress, decompress
+
+# Compress data with Huffman
+original = b"ABCABCABC"
+compressed = compress(original, algo="HUFFMAN")
+
+# Decompress data
+restored = decompress(compressed, algo="HUFFMAN")
+
+assert original == restored
+```
+
+### Algorithm Comparison
+
+Both LZW and Huffman are now available:
+
+```python
+data = b"ABABABABAB" * 100
+
+# LZW - good for repetitive patterns
+lzw_result = compress(data, "LZW")
+
+# Huffman - good for skewed frequency distributions
+huffman_result = compress(data, "HUFFMAN")
+
+# Both decompress correctly
+assert decompress(lzw_result, "LZW") == data
+assert decompress(huffman_result, "HUFFMAN") == data
+```
+
+### Testing
+
+The test suite includes:
+- ✅ Round-trip compression/decompression
+- ✅ Empty and single-byte inputs
+- ✅ Repetitive patterns (high compression ratio)
+- ✅ Random binary data
+- ✅ Large inputs
+- ✅ Single unique byte (edge case)
+- ✅ Error handling (corrupted headers, truncated data)
+- ✅ Unicode text support
+- ✅ Integration tests with LZW
+
+Run Huffman tests: `pytest tests/test_huffman.py`  
+Run integration tests: `pytest tests/test_integration.py`  
+Run all tests: `pytest`
+
+### Performance Characteristics
+
+| Data Type | Huffman Compression | Notes |
+|-----------|---------------------|-------|
+| Highly repetitive (single byte) | ~12-15% | Excellent for uniform data |
+| Text with skewed distribution | ~40-60% | Good compression |
+| Random binary data | >100% | Expansion (expected) |
+| English text | ~50-70% | Moderate compression |
+
+**Next Phase**: Phase 4 will implement Arithmetic coding, which can achieve better compression than Huffman for certain data patterns.
 
 ## 📋 Requirements
 

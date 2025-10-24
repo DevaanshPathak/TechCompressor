@@ -82,11 +82,11 @@ def test_lzw_invalid_algorithm():
     """Test that unsupported algorithms raise NotImplementedError."""
     data = b"test"
     with pytest.raises(NotImplementedError, match="not implemented yet"):
-        compress(data, "HUFFMAN")
+        compress(data, "ARITHMETIC")
     
     compressed = compress(data, "LZW")
     with pytest.raises(NotImplementedError, match="not implemented yet"):
-        decompress(compressed, "HUFFMAN")
+        decompress(compressed, "ARITHMETIC")
 
 
 def test_lzw_corrupted_header():
