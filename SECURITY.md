@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Security Policy
 
 ## Supported Versions
@@ -217,3 +218,6 @@ No vulnerabilities disclosed for this version.
 **Last Updated**: October 25, 2025  
 **Contact**: devaanshpathak@example.com  
 **PGP Key**: (Not yet published - email for secure communication)
+=======
+
+>>>>>>> b67526d9d11f634d6af5474f2a35b44d950ae27f
