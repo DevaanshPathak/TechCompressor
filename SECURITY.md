@@ -216,4 +216,3 @@ No vulnerabilities disclosed for this version.
 
 **Last Updated**: October 25, 2025  
 **Contact**: devaanshpathak@example.com  
-**PGP Key**: (Not yet published - email for secure communication)
