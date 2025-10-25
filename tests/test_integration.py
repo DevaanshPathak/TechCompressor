@@ -255,7 +255,7 @@ def test_stress_test_multiple_compressions():
         assert decompressed_huffman == original_data
 
 
-# Phase 6 - Password Protection Tests
+# Password Protection Tests
 
 def test_password_encryption_lzw():
     """Test LZW compression with password encryption."""

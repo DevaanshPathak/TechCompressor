@@ -2,7 +2,6 @@
 TechCompressor Command-Line Interface
 
 Provides command-line access to compression, archiving, and encryption features.
-(Phase 9 implementation - full CLI with benchmarks and verification)
 """
 
 import sys

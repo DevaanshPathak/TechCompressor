@@ -7,8 +7,6 @@ Provides user-friendly compression/decompression with:
 - Real-time progress updates and logging
 - Password protection and algorithm selection
 - Cancel/error handling with graceful degradation
-
-(Phase 8 implementation)
 """
 
 import tkinter as tk
@@ -94,7 +92,7 @@ class TechCompressorApp:
         )
         title_label.pack(side='left')
         
-        version_label = ttk.Label(header, text="v0.1.0 | Phase 8")
+        version_label = ttk.Label(header, text="v1.0.0")
         version_label.pack(side='left', padx=10)
         
         # Main notebook (tabs)

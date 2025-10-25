@@ -775,7 +775,7 @@ def compress(data: bytes, algo: str = "LZW", password: str | None = None) -> byt
     Args:
         data: Raw bytes to compress
         algo: Compression algorithm ("LZW", "HUFFMAN", or "DEFLATE" currently supported)
-        password: Optional password for encryption (Phase 6 feature)
+        password: Optional password for encryption
     
     Returns:
         Compressed bytes with header
@@ -817,7 +817,7 @@ def compress(data: bytes, algo: str = "LZW", password: str | None = None) -> byt
     logger.info(f"Compression complete: {len(data)} → {len(result)} bytes "
                 f"({100 * len(result) / max(len(data), 1):.1f}%)")
     
-    # Apply encryption if password is provided (Phase 6)
+    # Apply encryption if password is provided
     if password is not None:
         from .crypto import encrypt_aes_gcm
         logger.info("Encryption enabled - applying AES-256-GCM")
@@ -833,7 +833,7 @@ def decompress(data: bytes, algo: str = "LZW", password: str | None = None) -> b
     Args:
         data: Compressed bytes with header
         algo: Compression algorithm ("LZW", "HUFFMAN", or "DEFLATE" currently supported)
-        password: Optional password for decryption (Phase 6 feature)
+        password: Optional password for decryption
     
     Returns:
         Decompressed original bytes
@@ -841,7 +841,7 @@ def decompress(data: bytes, algo: str = "LZW", password: str | None = None) -> b
     Raises:
         ValueError: If data is corrupted or header is invalid
     """
-    # Check if data is encrypted (Phase 6)
+    # Check if data is encrypted
     if len(data) >= 4 and data[:4] == b"TCE1":
         if password is None:
             raise ValueError("Data is encrypted but no password provided")

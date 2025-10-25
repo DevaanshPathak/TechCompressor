@@ -2,7 +2,6 @@
 TechCompressor Archive Module
 
 Manages folder compression, multi-file archives, and metadata preservation.
-(Phase 7 implementation)
 """
 
 import os

@@ -2,7 +2,6 @@
 TechCompressor Cryptography Module
 
 Provides AES-256-GCM authenticated encryption for password-protected compression.
-(Phase 6 implementation)
 """
 
 import os
