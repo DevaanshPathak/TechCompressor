@@ -135,13 +135,13 @@ class TechCompressorApp:
         algo_frame = ttk.Frame(options_frame)
         algo_frame.pack(fill='x', pady=2)
         ttk.Label(algo_frame, text="Algorithm:").pack(side='left', padx=5)
-        self.compress_algo_var = tk.StringVar(value="LZW")
+        self.compress_algo_var = tk.StringVar(value="AUTO")
         algo_combo = ttk.Combobox(
             algo_frame,
             textvariable=self.compress_algo_var,
-            values=["LZW", "HUFFMAN", "DEFLATE"],
+            values=["AUTO"],
             state='readonly',
-            width=15
+            width=25
         )
         algo_combo.pack(side='left', padx=5)
         
@@ -578,18 +578,9 @@ class TechCompressorApp:
                 progress_callback(10, "Reading compressed file...")
                 compressed = Path(input_path).read_bytes()
                 
-                # Detect algorithm from header
-                algo = "LZW"  # Default
-                if compressed[:4] == b"TCH1":
-                    algo = "HUFFMAN"
-                elif compressed[:4] == b"TCD1":
-                    algo = "DEFLATE"
-                elif compressed[:4] == b"TCE1":
-                    # Encrypted - need to try algorithms
-                    pass
-                
-                progress_callback(30, f"Decompressing with {algo}...")
-                data = decompress(compressed, algo=algo, password=password)
+                # Use AUTO decompression which detects format from header
+                progress_callback(30, f"Decompressing (auto-detect)...")
+                data = decompress(compressed, algo="AUTO", password=password)
                 
                 progress_callback(80, "Writing output...")
                 # Save to output folder with original name

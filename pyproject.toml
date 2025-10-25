@@ -42,3 +42,4 @@ Issues = "https://github.com/DevaanshPathak/TechCompressor/issues"
 [project.scripts]
 techcompressor = "techcompressor.cli:main"
 techcmp = "techcompressor.cli:main"
+techcompressor-gui = "techcompressor.gui:main"

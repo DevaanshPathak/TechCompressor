@@ -794,13 +794,49 @@ def compress(data: bytes, algo: str = "LZW", password: str | None = None) -> byt
         - N bytes: DEFLATE compressed data (LZ77 + Huffman)
     """
     algo_upper = algo.upper()
-    
-    if algo_upper not in ("LZW", "HUFFMAN", "DEFLATE"):
+
+    # Support an "AUTO" mode which tries all supported algorithms and picks
+    # the smallest compressed result. This usually gives the best compressed
+    # size for arbitrary input without the user choosing an algorithm.
+    supported = ("LZW", "HUFFMAN", "DEFLATE", "AUTO")
+    if algo_upper not in supported:
         raise NotImplementedError(f"Algorithm {algo} not implemented yet.")
-    
+
     logger.info(f"Starting {algo_upper} compression of {len(data)} bytes")
-    
-    if algo_upper == "LZW":
+
+    if algo_upper == "AUTO":
+        # Try each algorithm and pick the smallest result (before encryption)
+        candidates: list[tuple[str, bytes]] = []
+
+        # LZW candidate
+        try:
+            lzw_payload = MAGIC_HEADER_LZW + struct.pack(">H", MAX_DICT_SIZE) + _lzw_compress(data)
+            candidates.append(("LZW", lzw_payload))
+        except Exception:
+            logger.exception("LZW pass failed during AUTO mode")
+
+        # Huffman candidate
+        try:
+            huff_payload = MAGIC_HEADER_HUFFMAN + _huffman_compress(data)
+            candidates.append(("HUFFMAN", huff_payload))
+        except Exception:
+            logger.exception("Huffman pass failed during AUTO mode")
+
+        # DEFLATE candidate
+        try:
+            deflate_payload = MAGIC_HEADER_DEFLATE + _compress_deflate(data)
+            candidates.append(("DEFLATE", deflate_payload))
+        except Exception:
+            logger.exception("DEFLATE pass failed during AUTO mode")
+
+        if not candidates:
+            raise ValueError("AUTO compression failed: no successful algorithm passes")
+
+        # Pick smallest by length
+        best_algo, result = min(candidates, key=lambda x: len(x[1]))
+        logger.info(f"AUTO selected {best_algo} with size {len(result)} bytes")
+
+    elif algo_upper == "LZW":
         # Perform LZW compression
         compressed_data = _lzw_compress(data)
         header = MAGIC_HEADER_LZW + struct.pack(">H", MAX_DICT_SIZE)
@@ -848,50 +884,55 @@ def decompress(data: bytes, algo: str = "LZW", password: str | None = None) -> b
         from .crypto import decrypt_aes_gcm
         logger.info("Encrypted data detected - decrypting with AES-256-GCM")
         data = decrypt_aes_gcm(data, password)
-    
+
     algo_upper = algo.upper()
-    
-    if algo_upper not in ("LZW", "HUFFMAN", "DEFLATE"):
+    supported = ("LZW", "HUFFMAN", "DEFLATE", "AUTO")
+    if algo_upper not in supported:
         raise NotImplementedError(f"Algorithm {algo} not implemented yet.")
-    
+
     logger.info(f"Starting {algo_upper} decompression of {len(data)} bytes")
-    
+
     # Validate minimum size
     if len(data) < 4:
         raise ValueError("Corrupted data: too short for valid TechCompressor format")
-    
-    # Check magic header to determine algorithm
+
+    # Determine algorithm from magic header - decompression always detects the
+    # format from the header. If user supplied a specific algorithm that
+    # disagrees with the detected format, log a warning but continue.
     magic = data[:4]
-    
-    if algo_upper == "LZW":
-        if magic != MAGIC_HEADER_LZW:
-            raise ValueError(f"Invalid magic header: expected {MAGIC_HEADER_LZW}, got {magic}")
-        
+    detected = None
+    if magic == MAGIC_HEADER_LZW:
+        detected = "LZW"
+    elif magic == MAGIC_HEADER_HUFFMAN:
+        detected = "HUFFMAN"
+    elif magic == MAGIC_HEADER_DEFLATE:
+        detected = "DEFLATE"
+    else:
+        raise ValueError(f"Invalid magic header: unknown format {magic}")
+
+    if algo_upper != "AUTO" and algo_upper != detected:
+        # Maintain previous behavior: when user requests a specific algorithm
+        # and the data does not match that algorithm's magic header, this
+        # should be considered an error to avoid silent mis-decompression.
+        raise ValueError(f"Invalid magic header: expected {globals().get('MAGIC_HEADER_' + algo_upper)} for {algo_upper}")
+
+    # Route to appropriate decompressor
+    if detected == "LZW":
         if len(data) < 6:
             raise ValueError("Corrupted LZW data: too short")
-        
+
         # Extract dictionary size (for validation)
         dict_size = struct.unpack(">H", data[4:6])[0]
         if dict_size != MAX_DICT_SIZE:
             logger.warning(f"Dictionary size mismatch: expected {MAX_DICT_SIZE}, got {dict_size}")
-        
+
         # Decompress
         compressed_data = data[6:]
         result = _lzw_decompress(compressed_data)
-    
-    elif algo_upper == "HUFFMAN":
-        if magic != MAGIC_HEADER_HUFFMAN:
-            raise ValueError(f"Invalid magic header: expected {MAGIC_HEADER_HUFFMAN}, got {magic}")
-        
-        # Decompress
+    elif detected == "HUFFMAN":
         compressed_data = data[4:]
         result = _huffman_decompress(compressed_data)
-    
     else:  # DEFLATE
-        if magic != MAGIC_HEADER_DEFLATE:
-            raise ValueError(f"Invalid magic header: expected {MAGIC_HEADER_DEFLATE}, got {magic}")
-        
-        # Decompress
         compressed_data = data[4:]
         result = _decompress_deflate(compressed_data)
     

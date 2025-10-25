@@ -39,9 +39,9 @@ def main():
                                           help='Create compressed archive')
     create_parser.add_argument('source', help='Source file or directory')
     create_parser.add_argument('archive', help='Output archive path')
-    create_parser.add_argument('--algo', default='LZW',
-                              choices=['LZW', 'HUFFMAN', 'DEFLATE'],
-                              help='Compression algorithm (default: LZW)')
+    create_parser.add_argument('--algo', default='AUTO',
+                              choices=['AUTO', 'LZW', 'HUFFMAN', 'DEFLATE'],
+                              help='Compression algorithm (default: AUTO - try all and pick smallest)')
     create_parser.add_argument('--per-file', action='store_true',
                               help='Compress each file separately (default: False)')
     create_parser.add_argument('--password', help='Password for encryption')
@@ -63,9 +63,9 @@ def main():
                                            help='Compress single file')
     compress_parser.add_argument('input', help='Input file')
     compress_parser.add_argument('output', help='Output file')
-    compress_parser.add_argument('--algo', default='LZW',
-                                choices=['LZW', 'HUFFMAN', 'DEFLATE'],
-                                help='Compression algorithm (default: LZW)')
+    compress_parser.add_argument('--algo', default='AUTO',
+                                choices=['AUTO', 'LZW', 'HUFFMAN', 'DEFLATE'],
+                                help='Compression algorithm (default: AUTO - try all and pick smallest)')
     compress_parser.add_argument('--password', help='Password for encryption')
     
     # File decompression command (simple)
@@ -73,9 +73,9 @@ def main():
                                              help='Decompress single file')
     decompress_parser.add_argument('input', help='Input file')
     decompress_parser.add_argument('output', help='Output file')
-    decompress_parser.add_argument('--algo', default='LZW',
-                                  choices=['LZW', 'HUFFMAN', 'DEFLATE'],
-                                  help='Compression algorithm (default: LZW)')
+    decompress_parser.add_argument('--algo', default='AUTO',
+                                  choices=['AUTO', 'LZW', 'HUFFMAN', 'DEFLATE'],
+                                  help='Compression algorithm (default: AUTO - detect from file header)')
     decompress_parser.add_argument('--password', help='Password for decryption')
     
     # Verify command

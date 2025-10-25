@@ -1,0 +1,98 @@
+name: Publish to PyPI
+
+# This workflow publishes to PyPI when a release is created
+# IMPORTANT: Requires PYPI_API_TOKEN secret to be configured
+# Manual trigger is also available for maintainers
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (upload to TestPyPI only)'
+        required: false
+        default: 'true'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest
+    
+    - name: Run smoke tests
+      run: pytest tests/test_release_smoke.py -v
+    
+    - name: Install build tools
+      run: pip install build twine
+    
+    - name: Build distribution packages
+      run: python -m build
+    
+    - name: Check distribution packages
+      run: twine check dist/*
+    
+    - name: Publish to TestPyPI (dry run)
+      if: github.event.inputs.dry_run == 'true'
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+      run: |
+        twine upload --repository testpypi dist/* --verbose
+    
+    - name: Publish to PyPI (production)
+      if: github.event_name == 'release' && github.event.action == 'created'
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+      run: |
+        twine upload dist/* --verbose
+    
+    - name: Upload artifacts to release
+      if: github.event_name == 'release'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist/*
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  verify-publication:
+    needs: publish
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' && github.event.action == 'created'
+    
+    steps:
+    - name: Wait for PyPI propagation
+      run: sleep 60
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    
+    - name: Install from PyPI
+      run: |
+        pip install techcompressor --no-cache-dir
+    
+    - name: Verify installation
+      run: |
+        python -c "import techcompressor; print(f'Version: {techcompressor.__version__}')"
+        techcompressor --version
+        techcompressor --benchmark
+    
+    - name: Notify success
+      run: |
+        echo "✅ TechCompressor successfully published to PyPI"
+        echo "📦 Version: $(python -c 'import techcompressor; print(techcompressor.__version__)')"
