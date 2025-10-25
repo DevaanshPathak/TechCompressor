@@ -1,2 +1,2 @@
-"""TechCompressor – Modular Compression Framework (Phase 1 setup)."""
-__version__ = "0.1.0"
+"""TechCompressor – Modular Compression Framework (Release 1.0.0)."""
+__version__ = "1.0.0"

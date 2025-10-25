@@ -12,6 +12,11 @@ INITIAL_DICT_SIZE = 256
 # Huffman Configuration
 MAGIC_HEADER_HUFFMAN = b"TCH1"
 
+# DEFLATE Configuration
+MAGIC_HEADER_DEFLATE = b"TCD1"
+DEFAULT_WINDOW_SIZE = 32768  # 32 KB sliding window
+DEFAULT_LOOKAHEAD = 258  # Maximum match length
+
 
 def _lzw_compress(data: bytes) -> bytes:
     """
@@ -250,7 +255,7 @@ def _serialize_huffman_tree(root: _HuffmanNode | None) -> bytes:
     Serialize Huffman tree to bytes for storage.
     
     Format: Pre-order traversal with markers:
-    - 0x01 + byte value (1 byte) for leaf nodes
+    - 0x01 + value (2 bytes, big-endian) for leaf nodes
     - 0x00 for internal nodes
     
     Args:
@@ -262,14 +267,14 @@ def _serialize_huffman_tree(root: _HuffmanNode | None) -> bytes:
     if root is None:
         return b""
     
-    result = []
+    result = bytearray()
     
     def serialize(node: _HuffmanNode):
         """Recursively serialize tree."""
         if node.byte is not None:
-            # Leaf node: marker + byte value
+            # Leaf node: marker + value (2 bytes for DEFLATE symbols)
             result.append(0x01)
-            result.append(node.byte)
+            result.extend(struct.pack(">H", node.byte))  # 2-byte big-endian
         else:
             # Internal node: marker only
             result.append(0x00)
@@ -307,10 +312,11 @@ def _deserialize_huffman_tree(data: bytes) -> tuple[_HuffmanNode | None, int]:
         
         if marker == 0x01:
             # Leaf node
-            if pos[0] >= len(data):
+            if pos[0] + 1 >= len(data):
                 raise ValueError("Corrupted Huffman tree: incomplete leaf node")
-            byte_val = data[pos[0]]
-            pos[0] += 1
+            # Read 2-byte value (for DEFLATE symbols)
+            byte_val = struct.unpack(">H", data[pos[0]:pos[0]+2])[0]
+            pos[0] += 2
             return _HuffmanNode(byte=byte_val)
         else:
             # Internal node
@@ -443,13 +449,332 @@ def _huffman_decompress(compressed: bytes) -> bytes:
     return bytes(result)
 
 
+# ============================================================================
+# DEFLATE Implementation (LZ77 + Huffman)
+# ============================================================================
+
+def _lz77_find_matches(data: bytes, window_size: int = DEFAULT_WINDOW_SIZE, 
+                       lookahead: int = DEFAULT_LOOKAHEAD):
+    """
+    Find matches in data using LZ77 sliding window algorithm.
+    
+    Yields (offset, length, next_byte) tuples:
+    - offset: distance back to start of match (0 if no match)
+    - length: length of match (0 if no match)
+    - next_byte: next literal byte after match (or current byte if no match)
+    
+    Algorithm:
+    1. Maintain sliding window of previous data
+    2. For each position, search window for longest match
+    3. Output (distance, length) pair and next literal
+    4. Advance by match length + 1
+    
+    Args:
+        data: Input bytes to compress
+        window_size: Maximum size of sliding window
+        lookahead: Maximum match length to search for
+    
+    Yields:
+        Tuples of (offset, length, next_byte)
+    """
+    i = 0
+    data_len = len(data)
+    
+    while i < data_len:
+        best_offset = 0
+        best_length = 0
+        
+        # Define search window (data before current position)
+        window_start = max(0, i - window_size)
+        
+        # Search for longest match in window
+        max_match_len = min(lookahead, data_len - i)
+        
+        for match_len in range(max_match_len, 2, -1):  # Start from longest possible
+            # Pattern to match
+            pattern = data[i:i + match_len]
+            
+            # Search in window
+            search_area = data[window_start:i]
+            pos = search_area.rfind(pattern)  # Find last occurrence
+            
+            if pos != -1:
+                best_offset = i - (window_start + pos)
+                best_length = match_len
+                break
+        
+        # Output match or literal
+        if best_length >= 3:  # Only use match if length >= 3 (DEFLATE convention)
+            # Output match (next_byte will be processed in next iteration)
+            yield (best_offset, best_length, 0)
+            i += best_length
+        else:
+            # Output literal
+            yield (0, 0, data[i])
+            i += 1
+
+
+def _compress_deflate(data: bytes) -> bytes:
+    """
+    Internal DEFLATE-style compression implementation.
+    
+    Algorithm:
+    1. Run LZ77 to find repeated sequences
+    2. Encode output as literals and (length, distance) pairs
+    3. Build frequency table for all symbols
+    4. Create Huffman codes for literals and length/distance pairs
+    5. Encode using Huffman and pack bits
+    
+    Returns:
+        Compressed data with header and Huffman table
+    """
+    if not data:
+        return b""
+    
+    logger.info("Running LZ77 sliding window compression")
+    
+    # Step 1: Run LZ77 to find matches
+    lz77_output = list(_lz77_find_matches(data))
+    
+    # Step 2: Encode LZ77 output as symbol stream
+    # Symbols 0-255: literals
+    # Symbol 256: end-of-block
+    # Symbols 257-512: length codes (mapping to actual lengths)
+    # Distance codes are separate (0-32767)
+    
+    symbols = []
+    distances = []
+    
+    for offset, length, next_byte in lz77_output:
+        if length == 0:
+            # Literal byte
+            symbols.append(next_byte)
+        else:
+            # Length-distance pair
+            # Encode length as symbol 257+ (257 = length 3, 258 = length 4, etc.)
+            length_symbol = 257 + (length - 3)
+            symbols.append(length_symbol)
+            distances.append(offset)
+            # Note: next_byte is handled in the next iteration as we advance past it in LZ77
+    
+    # Add end-of-block marker
+    symbols.append(256)
+    
+    logger.info(f"LZ77 produced {len(symbols)} symbols from {len(data)} bytes")
+    
+    # Step 3: Build frequency tables for Huffman encoding
+    symbol_freqs = {}
+    for sym in symbols:
+        symbol_freqs[sym] = symbol_freqs.get(sym, 0) + 1
+    
+    dist_freqs = {}
+    for dist in distances:
+        dist_freqs[dist] = dist_freqs.get(dist, 0) + 1
+    
+    # Step 4: Build Huffman trees and generate codes
+    symbol_tree = _build_huffman_tree(symbol_freqs)
+    symbol_codes = _generate_huffman_codes(symbol_tree)
+    
+    dist_tree = None
+    dist_codes = {}
+    if distances:
+        dist_tree = _build_huffman_tree(dist_freqs)
+        dist_codes = _generate_huffman_codes(dist_tree)
+    
+    # Step 5: Serialize Huffman trees
+    symbol_tree_data = _serialize_huffman_tree(symbol_tree)
+    dist_tree_data = _serialize_huffman_tree(dist_tree) if dist_tree else b""
+    
+    # Step 6: Encode symbols using Huffman codes
+    bit_string = ""
+    dist_idx = 0
+    
+    for sym in symbols:
+        bit_string += symbol_codes[sym]
+        # If this is a length code, also encode distance
+        if 257 <= sym <= 512 and dist_idx < len(distances):
+            dist = distances[dist_idx]
+            bit_string += dist_codes.get(dist, "0")
+            dist_idx += 1
+    
+    logger.info(f"Huffman encoded to {len(bit_string)} bits")
+    
+    # Step 7: Pack bits into bytes
+    padding = (8 - len(bit_string) % 8) % 8
+    bit_string += "0" * padding
+    
+    compressed_bytes = []
+    for i in range(0, len(bit_string), 8):
+        byte_bits = bit_string[i:i+8]
+        compressed_bytes.append(int(byte_bits, 2))
+    
+    # Step 8: Build output format
+    # Format: window_size (2B) + orig_len (4B) + 
+    #         symbol_tree_size (4B) + symbol_tree + 
+    #         dist_tree_size (4B) + dist_tree + 
+    #         padding (1B) + compressed_data
+    
+    header = struct.pack(">H", DEFAULT_WINDOW_SIZE)
+    header += struct.pack(">I", len(data))
+    header += struct.pack(">I", len(symbol_tree_data))
+    header += symbol_tree_data
+    header += struct.pack(">I", len(dist_tree_data))
+    header += dist_tree_data
+    header += bytes([padding])
+    
+    result = header + bytes(compressed_bytes)
+    return result
+
+
+def _decompress_deflate(compressed: bytes) -> bytes:
+    """
+    Internal DEFLATE-style decompression implementation.
+    
+    Algorithm:
+    1. Extract header and Huffman trees
+    2. Deserialize Huffman trees for literals and distances
+    3. Decode bit stream using Huffman codes
+    4. Reconstruct original data from literals and matches
+    
+    Returns:
+        Decompressed original bytes
+    """
+    if not compressed:
+        return b""
+    
+    pos = 0
+    
+    # Extract window size
+    if len(compressed) < 2:
+        raise ValueError("Corrupted DEFLATE data: too short for header")
+    
+    window_size = struct.unpack(">H", compressed[pos:pos+2])[0]
+    pos += 2
+    
+    # Extract original length
+    if pos + 4 > len(compressed):
+        raise ValueError("Corrupted DEFLATE data: missing original length")
+    
+    orig_len = struct.unpack(">I", compressed[pos:pos+4])[0]
+    pos += 4
+    
+    # Extract symbol tree
+    if pos + 4 > len(compressed):
+        raise ValueError("Corrupted DEFLATE data: missing symbol tree size")
+    
+    symbol_tree_size = struct.unpack(">I", compressed[pos:pos+4])[0]
+    pos += 4
+    
+    if pos + symbol_tree_size > len(compressed):
+        raise ValueError("Corrupted DEFLATE data: invalid symbol tree size")
+    
+    symbol_tree_data = compressed[pos:pos+symbol_tree_size]
+    symbol_tree, _ = _deserialize_huffman_tree(symbol_tree_data)
+    pos += symbol_tree_size
+    
+    # Extract distance tree
+    if pos + 4 > len(compressed):
+        raise ValueError("Corrupted DEFLATE data: missing distance tree size")
+    
+    dist_tree_size = struct.unpack(">I", compressed[pos:pos+4])[0]
+    pos += 4
+    
+    dist_tree = None
+    if dist_tree_size > 0:
+        if pos + dist_tree_size > len(compressed):
+            raise ValueError("Corrupted DEFLATE data: invalid distance tree size")
+        
+        dist_tree_data = compressed[pos:pos+dist_tree_size]
+        dist_tree, _ = _deserialize_huffman_tree(dist_tree_data)
+        pos += dist_tree_size
+    
+    # Extract padding
+    if pos >= len(compressed):
+        raise ValueError("Corrupted DEFLATE data: missing padding byte")
+    
+    padding = compressed[pos]
+    pos += 1
+    
+    # Extract compressed data
+    compressed_data = compressed[pos:]
+    
+    # Convert to bit string
+    bit_string = "".join(f"{byte:08b}" for byte in compressed_data)
+    if padding > 0:
+        bit_string = bit_string[:-padding]
+    
+    # Decode bit stream
+    result = []
+    bit_pos = 0
+    current_node = symbol_tree
+    
+    # Build reverse lookup for faster decoding
+    symbol_codes = _generate_huffman_codes(symbol_tree)
+    dist_codes = _generate_huffman_codes(dist_tree) if dist_tree else {}
+    
+    # Invert dictionaries for decoding
+    code_to_symbol = {v: k for k, v in symbol_codes.items()}
+    code_to_dist = {v: k for k, v in dist_codes.items()}
+    
+    def decode_symbol(start_pos):
+        """Decode next symbol from bit string starting at start_pos."""
+        code = ""
+        pos = start_pos
+        while pos < len(bit_string):
+            code += bit_string[pos]
+            pos += 1
+            if code in code_to_symbol:
+                return code_to_symbol[code], pos
+        raise ValueError("Corrupted DEFLATE data: invalid symbol code")
+    
+    def decode_distance(start_pos):
+        """Decode next distance from bit string starting at start_pos."""
+        if not code_to_dist:
+            return 0, start_pos
+        code = ""
+        pos = start_pos
+        while pos < len(bit_string):
+            code += bit_string[pos]
+            pos += 1
+            if code in code_to_dist:
+                return code_to_dist[code], pos
+        raise ValueError("Corrupted DEFLATE data: invalid distance code")
+    
+    # Decode symbols
+    bit_pos = 0
+    while bit_pos < len(bit_string):
+        sym, bit_pos = decode_symbol(bit_pos)
+        
+        if sym == 256:  # End of block
+            break
+        elif sym < 256:  # Literal
+            result.append(sym)
+        else:  # Length code (257-512)
+            length = sym - 257 + 3
+            # Decode distance
+            dist, bit_pos = decode_distance(bit_pos)
+            
+            # Copy from history
+            if dist > len(result):
+                raise ValueError(f"Corrupted DEFLATE data: invalid distance {dist}")
+            
+            start_pos = len(result) - dist
+            for _ in range(length):
+                result.append(result[start_pos])
+                start_pos += 1
+    
+    logger.info(f"Decompressed {len(compressed)} → {len(result)} bytes")
+    
+    return bytes(result)
+
+
 def compress(data: bytes, algo: str = "LZW", password: str | None = None) -> bytes:
     """
     Compress input data using the specified algorithm.
     
     Args:
         data: Raw bytes to compress
-        algo: Compression algorithm ("LZW" or "HUFFMAN" currently supported)
+        algo: Compression algorithm ("LZW", "HUFFMAN", or "DEFLATE" currently supported)
         password: Optional password for encryption (Phase 6 feature)
     
     Returns:
@@ -463,14 +788,15 @@ def compress(data: bytes, algo: str = "LZW", password: str | None = None) -> byt
     Format (Huffman):
         - 4 bytes: Magic header "TCH1"
         - N bytes: Huffman compressed data with tree
+    
+    Format (DEFLATE):
+        - 4 bytes: Magic header "TCD1"
+        - N bytes: DEFLATE compressed data (LZ77 + Huffman)
     """
     algo_upper = algo.upper()
     
-    if algo_upper not in ("LZW", "HUFFMAN"):
+    if algo_upper not in ("LZW", "HUFFMAN", "DEFLATE"):
         raise NotImplementedError(f"Algorithm {algo} not implemented yet.")
-    
-    if password is not None:
-        logger.info("Password protection will be added in Phase 6")
     
     logger.info(f"Starting {algo_upper} compression of {len(data)} bytes")
     
@@ -479,13 +805,23 @@ def compress(data: bytes, algo: str = "LZW", password: str | None = None) -> byt
         compressed_data = _lzw_compress(data)
         header = MAGIC_HEADER_LZW + struct.pack(">H", MAX_DICT_SIZE)
         result = header + compressed_data
-    else:  # HUFFMAN
+    elif algo_upper == "HUFFMAN":
         # Perform Huffman compression
         compressed_data = _huffman_compress(data)
         result = MAGIC_HEADER_HUFFMAN + compressed_data
+    else:  # DEFLATE
+        # Perform DEFLATE compression (LZ77 + Huffman)
+        compressed_data = _compress_deflate(data)
+        result = MAGIC_HEADER_DEFLATE + compressed_data
     
     logger.info(f"Compression complete: {len(data)} → {len(result)} bytes "
                 f"({100 * len(result) / max(len(data), 1):.1f}%)")
+    
+    # Apply encryption if password is provided (Phase 6)
+    if password is not None:
+        from .crypto import encrypt_aes_gcm
+        logger.info("Encryption enabled - applying AES-256-GCM")
+        result = encrypt_aes_gcm(result, password)
     
     return result
 
@@ -496,7 +832,7 @@ def decompress(data: bytes, algo: str = "LZW", password: str | None = None) -> b
     
     Args:
         data: Compressed bytes with header
-        algo: Compression algorithm ("LZW" or "HUFFMAN" currently supported)
+        algo: Compression algorithm ("LZW", "HUFFMAN", or "DEFLATE" currently supported)
         password: Optional password for decryption (Phase 6 feature)
     
     Returns:
@@ -505,13 +841,18 @@ def decompress(data: bytes, algo: str = "LZW", password: str | None = None) -> b
     Raises:
         ValueError: If data is corrupted or header is invalid
     """
+    # Check if data is encrypted (Phase 6)
+    if len(data) >= 4 and data[:4] == b"TCE1":
+        if password is None:
+            raise ValueError("Data is encrypted but no password provided")
+        from .crypto import decrypt_aes_gcm
+        logger.info("Encrypted data detected - decrypting with AES-256-GCM")
+        data = decrypt_aes_gcm(data, password)
+    
     algo_upper = algo.upper()
     
-    if algo_upper not in ("LZW", "HUFFMAN"):
+    if algo_upper not in ("LZW", "HUFFMAN", "DEFLATE"):
         raise NotImplementedError(f"Algorithm {algo} not implemented yet.")
-    
-    if password is not None:
-        logger.info("Password protection will be added in Phase 6")
     
     logger.info(f"Starting {algo_upper} decompression of {len(data)} bytes")
     
@@ -538,13 +879,21 @@ def decompress(data: bytes, algo: str = "LZW", password: str | None = None) -> b
         compressed_data = data[6:]
         result = _lzw_decompress(compressed_data)
     
-    else:  # HUFFMAN
+    elif algo_upper == "HUFFMAN":
         if magic != MAGIC_HEADER_HUFFMAN:
             raise ValueError(f"Invalid magic header: expected {MAGIC_HEADER_HUFFMAN}, got {magic}")
         
         # Decompress
         compressed_data = data[4:]
         result = _huffman_decompress(compressed_data)
+    
+    else:  # DEFLATE
+        if magic != MAGIC_HEADER_DEFLATE:
+            raise ValueError(f"Invalid magic header: expected {MAGIC_HEADER_DEFLATE}, got {magic}")
+        
+        # Decompress
+        compressed_data = data[4:]
+        result = _decompress_deflate(compressed_data)
     
     logger.info(f"Decompression complete: {len(data)} → {len(result)} bytes")
     
