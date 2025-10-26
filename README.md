@@ -121,6 +121,52 @@ techcompressor --gui
 
 ## 📊 Performance & Benchmarks
 
+### TechCompressor vs. Industry Standards
+
+How does TechCompressor compare to ZIP, RAR, and 7-Zip? Here's a comprehensive breakdown:
+
+| Feature | TechCompressor | ZIP | RAR | 7-Zip |
+|---------|---------------|-----|-----|-------|
+| **Open Source** | ✅ MIT License | ✅ Public Domain | ❌ Proprietary | ✅ LGPL |
+| **Compression Algorithms** | LZW, Huffman, DEFLATE | DEFLATE | RAR (proprietary) | LZMA, LZMA2, DEFLATE |
+| **Best Compression Ratio** | ★★★★☆ (99%+ on repetitive) | ★★★☆☆ | ★★★★★ (industry best) | ★★★★★ |
+| **Compression Speed** | ★★★★☆ (3-6 MB/s) | ★★★★☆ | ★★☆☆☆ (slow) | ★★★☆☆ |
+| **Encryption** | AES-256-GCM (100K iterations) | AES-256 (ZipCrypto weak) | AES-256 | AES-256 |
+| **Smart Storage Mode** | ✅ Auto-detects incompressible | ❌ Always compresses | ✅ | ✅ |
+| **Archive Metadata** | Timestamps, permissions | Timestamps | Full metadata | Full metadata |
+| **Python API** | ✅ Native | ⚠️ Via zipfile | ❌ | ⚠️ Via py7zr |
+| **GUI Included** | ✅ Cross-platform | ❌ OS-dependent | ✅ Commercial | ✅ |
+| **Format Compatibility** | TCAF (custom) | Universal | Universal | Universal |
+| **Multi-algorithm Choice** | ✅ 3 algorithms + AUTO | ❌ DEFLATE only | ❌ RAR only | ✅ Multiple |
+| **Use Case** | Development, scripting, automation | General purpose | Maximum compression | Open-source alternative |
+
+#### **Key Advantages:**
+
+- **🔧 Developer-Friendly**: Native Python API with clean, documented interface
+- **🔒 Security-First**: Stronger key derivation (100K iterations vs. ZIP's weak encryption)
+- **⚡ Smart Compression**: STORED mode saves time/space on incompressible files (PNGs, videos, archives)
+- **🎯 Algorithm Choice**: Pick the best tool for your data (LZW for speed, DEFLATE for ratio, Huffman for text)
+- **📦 Archive Flexibility**: Per-file or single-stream compression modes
+- **🆓 Truly Open**: MIT licensed, no restrictions, fully inspectable code
+
+#### **When to Use TechCompressor:**
+
+✅ **Best For:**
+- Python applications needing compression
+- Automated backup scripts
+- Development/testing compression algorithms
+- Scenarios requiring strong encryption with password
+- Mixed content (text + images) archives
+
+❌ **Not Ideal For:**
+- Maximum compression ratio (use 7-Zip/RAR)
+- Universal format compatibility (use ZIP)
+- Extremely large files >10GB (use specialized tools)
+
+---
+
+## 📊 Algorithm Performance
+
 ### Algorithm Comparison
 
 | Algorithm | Best For | Speed | Compression | Memory | Notes |
@@ -147,7 +193,7 @@ HUFFMAN      5.82 ms     43.7%       2.46 MB/s
 | **Text/Source Code** | DEFLATE | Single-stream | Best compression for similar content |
 | **Office Documents** | DEFLATE | Per-file | Mixed content with metadata |
 | **Binary/Executables** | LZW | Per-file | Fast, handles binary well |
-| **Media Files** | LZW | Per-file | Already compressed, skip re-compression |
+| **Media Files** | AUTO | Per-file | Auto-detects incompressible, uses STORED |
 | **Large Files (>100MB)** | DEFLATE | Single-stream | Streaming support, best ratio |
 
 ### Run Your Own Benchmarks

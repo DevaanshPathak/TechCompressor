@@ -17,11 +17,11 @@ logger = get_logger(__name__)
 
 # Archive format constants
 MAGIC_HEADER_ARCHIVE = b"TCAF"  # TechCompressor Archive Format
-ARCHIVE_VERSION = 1
+ARCHIVE_VERSION = 2  # v2: Added STORED mode for incompressible files
 CHUNK_SIZE = 16 * 1024 * 1024  # 16 MB for streaming
 
-# Algorithm ID mapping
-ALGO_MAP = {"LZW": 1, "HUFFMAN": 2, "DEFLATE": 3, "ARITHMETIC": 4}
+# Algorithm ID mapping (0 = STORED for uncompressed data)
+ALGO_MAP = {"STORED": 0, "LZW": 1, "HUFFMAN": 2, "DEFLATE": 3, "ARITHMETIC": 4}
 ALGO_REVERSE = {v: k for k, v in ALGO_MAP.items()}
 
 
@@ -222,6 +222,22 @@ def create_archive(
                     
                     compressed_data = compress(file_data, algo=algo, password=password)
                     
+                    # Choose between compressed or stored based on size
+                    # Note: Never use STORED with encryption - encrypted data must be decrypted
+                    actual_algo = algo.upper()
+                    actual_data = compressed_data
+                    
+                    if not password and len(compressed_data) >= len(file_data) and len(file_data) > 0:
+                        # Compression failed and no encryption - store original data uncompressed
+                        actual_data = file_data
+                        actual_algo = "STORED"
+                        ratio = len(compressed_data) / len(file_data)
+                        logger.info(
+                            f"File {rel_name}: compression expanded data "
+                            f"({len(file_data)} → {len(compressed_data)} bytes, {ratio*100:.1f}%) - "
+                            f"storing uncompressed instead"
+                        )
+                    
                     # Write entry header
                     entry_offset = f.tell()
                     rel_name_bytes = rel_name.encode('utf-8')
@@ -231,23 +247,24 @@ def create_archive(
                     f.write(struct.pack('>Q', file_size))  # original size
                     f.write(struct.pack('>Q', mtime))  # modification time
                     f.write(struct.pack('>I', mode))  # file mode
-                    f.write(struct.pack('>Q', len(compressed_data)))  # compressed size
-                    f.write(struct.pack('B', ALGO_MAP.get(algo.upper(), 1)))  # algo ID
+                    f.write(struct.pack('>Q', len(actual_data)))  # stored size
+                    f.write(struct.pack('B', ALGO_MAP.get(actual_algo, 1)))  # algo ID
                     
-                    # Write compressed data
-                    f.write(compressed_data)
+                    # Write data (compressed or stored)
+                    f.write(actual_data)
                     
                     entries.append({
                         'name': rel_name,
                         'size': file_size,
-                        'compressed_size': len(compressed_data),
+                        'compressed_size': len(actual_data),
+                        'algo': actual_algo,
                         'mtime': mtime,
                         'mode': mode,
                         'offset': entry_offset
                     })
                     
                     total_original_size += file_size
-                    total_compressed_size += len(compressed_data)
+                    total_compressed_size += len(actual_data)
                     
                     if progress_callback:
                         progress_callback(len(entries), len(files_to_archive))
@@ -304,18 +321,36 @@ def create_archive(
             logger.info(f"Compressing stream: {total_original_size} bytes")
             stream_data = stream.getvalue()
             compressed_stream = compress(stream_data, algo=algo, password=password)
-            total_compressed_size = len(compressed_stream)
+            
+            # Choose between compressed or stored based on size
+            # Note: Never use STORED with encryption - encrypted data must be decrypted
+            actual_algo = algo.upper()
+            actual_data = compressed_stream
+            
+            if not password and len(compressed_stream) >= len(stream_data) and len(stream_data) > 0:
+                # Compression failed and no encryption - store original stream uncompressed
+                actual_data = stream_data
+                actual_algo = "STORED"
+                ratio = len(compressed_stream) / len(stream_data)
+                logger.info(
+                    f"Stream compression expanded data "
+                    f"({len(stream_data)} → {len(compressed_stream)} bytes, {ratio*100:.1f}%) - "
+                    f"storing uncompressed instead"
+                )
+            
+            total_compressed_size = len(actual_data)
             
             # Write single entry for entire stream
             entry_offset = f.tell()
-            f.write(struct.pack('>Q', len(compressed_stream)))  # compressed size
-            f.write(struct.pack('B', ALGO_MAP.get(algo.upper(), 1)))  # algo ID
-            f.write(compressed_stream)
+            f.write(struct.pack('>Q', len(actual_data)))  # stored size
+            f.write(struct.pack('B', ALGO_MAP.get(actual_algo, 1)))  # algo ID
+            f.write(actual_data)
             
             # Update compressed sizes in entries
             for entry in entries:
                 entry['compressed_size'] = total_compressed_size
                 entry['offset'] = entry_offset
+                entry['algo'] = actual_algo
         
         # Write entry table
         entry_table_offset = f.tell()
@@ -330,6 +365,9 @@ def create_archive(
             f.write(struct.pack('>Q', entry['mtime']))
             f.write(struct.pack('>I', entry['mode']))
             f.write(struct.pack('>Q', entry['offset']))
+            # v2 format: include algorithm ID in entry table
+            algo_id = ALGO_MAP.get(entry.get('algo', 'LZW'), 1)
+            f.write(struct.pack('B', algo_id))
         
         # Update entry table offset in header
         f.seek(entry_table_offset_pos)
@@ -387,8 +425,11 @@ def extract_archive(
             raise ValueError(f"Invalid archive magic: {magic}")
         
         version = struct.unpack('B', f.read(1))[0]
-        if version != ARCHIVE_VERSION:
+        if version not in (1, 2):
             raise ValueError(f"Unsupported archive version: {version}")
+        
+        # Note: v1 archives don't support STORED mode, all files are compressed
+        supports_stored = (version >= 2)
         
         per_file = struct.unpack('B', f.read(1))[0] == 1
         encrypted = struct.unpack('B', f.read(1))[0] == 1
@@ -416,13 +457,22 @@ def extract_archive(
             mode = struct.unpack('>I', f.read(4))[0]
             offset = struct.unpack('>Q', f.read(8))[0]
             
+            # v2 format: read algorithm ID from entry table
+            algo_id = None
+            algo_name = None
+            if supports_stored:  # v2+ format includes algo in entry table
+                algo_id = struct.unpack('B', f.read(1))[0]
+                algo_name = ALGO_REVERSE.get(algo_id, "LZW")
+            
             entries.append({
                 'name': name,
                 'size': size,
                 'compressed_size': compressed_size,
                 'mtime': mtime,
                 'mode': mode,
-                'offset': offset
+                'offset': offset,
+                'algo_id': algo_id,
+                'algo': algo_name
             })
         
         logger.info(f"Extracting {num_entries} files")
@@ -454,9 +504,14 @@ def extract_archive(
                 # Read compressed data
                 compressed_data = f.read(compressed_size)
                 
-                # Decompress
+                # Decompress (or use stored data directly)
                 algo = ALGO_REVERSE.get(algo_id, "LZW")
-                file_data = decompress(compressed_data, algo=algo, password=password)
+                if algo == "STORED":
+                    # Data is stored uncompressed
+                    file_data = compressed_data
+                else:
+                    # Data is compressed - decompress it with AUTO to detect format
+                    file_data = decompress(compressed_data, algo="AUTO", password=password)
                 
                 # Write file
                 with open(target_path, 'wb') as out_f:
@@ -483,7 +538,12 @@ def extract_archive(
             compressed_stream = f.read(compressed_size)
             
             algo = ALGO_REVERSE.get(algo_id, "LZW")
-            stream_data = decompress(compressed_stream, algo=algo, password=password)
+            if algo == "STORED":
+                # Stream is stored uncompressed
+                stream_data = compressed_stream
+            else:
+                # Stream is compressed - decompress it with AUTO to detect format
+                stream_data = decompress(compressed_stream, algo="AUTO", password=password)
             
             # Parse stream and extract files
             stream = io.BytesIO(stream_data)
@@ -548,8 +608,10 @@ def list_contents(archive_path: str | Path) -> List[Dict]:
             raise ValueError(f"Invalid archive magic: {magic}")
         
         version = struct.unpack('B', f.read(1))[0]
-        if version != ARCHIVE_VERSION:
+        if version not in (1, 2):
             raise ValueError(f"Unsupported archive version: {version}")
+        
+        supports_stored = (version >= 2)
         
         per_file = struct.unpack('B', f.read(1))[0] == 1
         encrypted = struct.unpack('B', f.read(1))[0] == 1
@@ -569,12 +631,22 @@ def list_contents(archive_path: str | Path) -> List[Dict]:
             mode = struct.unpack('>I', f.read(4))[0]
             offset = struct.unpack('>Q', f.read(8))[0]
             
-            entries.append({
+            # v2 format: read algorithm from entry table
+            algo_name = None
+            if supports_stored:  # v2+ format includes algo in entry table
+                algo_id = struct.unpack('B', f.read(1))[0]
+                algo_name = ALGO_REVERSE.get(algo_id, "LZW")
+            
+            entry_dict = {
                 'name': name,
                 'size': size,
                 'compressed_size': compressed_size,
                 'mtime': mtime,
                 'mode': mode
-            })
+            }
+            if algo_name:
+                entry_dict['algo'] = algo_name
+            
+            entries.append(entry_dict)
     
     return entries

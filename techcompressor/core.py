@@ -805,36 +805,69 @@ def compress(data: bytes, algo: str = "LZW", password: str | None = None) -> byt
     logger.info(f"Starting {algo_upper} compression of {len(data)} bytes")
 
     if algo_upper == "AUTO":
-        # Try each algorithm and pick the smallest result (before encryption)
-        candidates: list[tuple[str, bytes]] = []
-
-        # LZW candidate
-        try:
+        # Smart AUTO mode: use heuristics to avoid slow compression on large/incompressible files
+        
+        # For files larger than 5MB, skip DEFLATE (too slow) and only try LZW/Huffman
+        skip_deflate = len(data) > 5 * 1024 * 1024
+        
+        # Quick entropy check: if data looks random/compressed, use fast LZW only
+        # Sample first 4KB to check for patterns
+        sample_size = min(4096, len(data))
+        sample = data[:sample_size]
+        unique_bytes = len(set(sample))
+        entropy_ratio = unique_bytes / 256.0  # 1.0 = perfectly random
+        
+        # If entropy > 0.9, data is likely already compressed/encrypted
+        if entropy_ratio > 0.9 and len(data) > 10000:
+            logger.info(f"High entropy detected ({entropy_ratio:.2f}) - using fast LZW only")
             lzw_payload = MAGIC_HEADER_LZW + struct.pack(">H", MAX_DICT_SIZE) + _lzw_compress(data)
-            candidates.append(("LZW", lzw_payload))
-        except Exception:
-            logger.exception("LZW pass failed during AUTO mode")
+            result = lzw_payload
+            best_algo = "LZW"
+        else:
+            # Try each algorithm and pick the smallest result (before encryption)
+            candidates: list[tuple[str, bytes]] = []
 
-        # Huffman candidate
-        try:
-            huff_payload = MAGIC_HEADER_HUFFMAN + _huffman_compress(data)
-            candidates.append(("HUFFMAN", huff_payload))
-        except Exception:
-            logger.exception("Huffman pass failed during AUTO mode")
+            # LZW candidate (always try - fast)
+            try:
+                lzw_payload = MAGIC_HEADER_LZW + struct.pack(">H", MAX_DICT_SIZE) + _lzw_compress(data)
+                candidates.append(("LZW", lzw_payload))
+            except Exception:
+                logger.exception("LZW pass failed during AUTO mode")
 
-        # DEFLATE candidate
-        try:
-            deflate_payload = MAGIC_HEADER_DEFLATE + _compress_deflate(data)
-            candidates.append(("DEFLATE", deflate_payload))
-        except Exception:
-            logger.exception("DEFLATE pass failed during AUTO mode")
+            # Huffman candidate (try for small-medium files)
+            if len(data) < 50 * 1024 * 1024:  # Skip for files > 50MB
+                try:
+                    huff_payload = MAGIC_HEADER_HUFFMAN + _huffman_compress(data)
+                    candidates.append(("HUFFMAN", huff_payload))
+                except Exception:
+                    logger.exception("Huffman pass failed during AUTO mode")
 
-        if not candidates:
-            raise ValueError("AUTO compression failed: no successful algorithm passes")
+            # DEFLATE candidate (skip for large files)
+            if not skip_deflate:
+                try:
+                    deflate_payload = MAGIC_HEADER_DEFLATE + _compress_deflate(data)
+                    candidates.append(("DEFLATE", deflate_payload))
+                except Exception:
+                    logger.exception("DEFLATE pass failed during AUTO mode")
+            else:
+                logger.info(f"Skipping DEFLATE for large file ({len(data)} bytes)")
 
-        # Pick smallest by length
-        best_algo, result = min(candidates, key=lambda x: len(x[1]))
-        logger.info(f"AUTO selected {best_algo} with size {len(result)} bytes")
+            if not candidates:
+                raise ValueError("AUTO compression failed: no successful algorithm passes")
+
+            # Pick smallest by length
+            best_algo, result = min(candidates, key=lambda x: len(x[1]))
+        
+        # Check if compression actually helped
+        ratio = len(result) / max(len(data), 1)
+        if ratio > 1.0:
+            logger.warning(
+                f"AUTO selected {best_algo} but data expanded to {len(result)} bytes "
+                f"({ratio*100:.1f}%) - file may be incompressible or too small"
+            )
+        else:
+            logger.info(f"AUTO selected {best_algo} with size {len(result)} bytes ({ratio*100:.1f}%)")
+
 
     elif algo_upper == "LZW":
         # Perform LZW compression

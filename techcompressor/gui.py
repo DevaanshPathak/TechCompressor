@@ -19,9 +19,10 @@ import traceback
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Callable
 
-from .core import compress, decompress
-from .archiver import create_archive, extract_archive, list_contents
-from .utils import get_logger
+# Use absolute imports for PyInstaller compatibility
+from techcompressor.core import compress, decompress
+from techcompressor.archiver import create_archive, extract_archive, list_contents
+from techcompressor.utils import get_logger
 
 logger = get_logger(__name__)
 
@@ -36,14 +37,31 @@ class GUILogHandler(logging.Handler):
     
     def emit(self, record):
         msg = self.format(record)
-        # Schedule GUI update in main thread
-        self.text_widget.after(0, self._append_log, msg)
+        # Use try-except to safely handle threading issues
+        try:
+            # Check if we're in the main thread
+            if threading.current_thread() is threading.main_thread():
+                self._append_log(msg)
+            else:
+                # Schedule from background thread - may fail if GUI is closing
+                try:
+                    self.text_widget.after(0, self._append_log, msg)
+                except RuntimeError:
+                    # GUI may be closing or not in main loop - silently ignore
+                    pass
+        except Exception:
+            # Failsafe: don't crash if GUI logging fails
+            pass
     
     def _append_log(self, msg):
-        self.text_widget.configure(state='normal')
-        self.text_widget.insert(tk.END, msg + '\n')
-        self.text_widget.see(tk.END)
-        self.text_widget.configure(state='disabled')
+        try:
+            self.text_widget.configure(state='normal')
+            self.text_widget.insert(tk.END, msg + '\n')
+            self.text_widget.see(tk.END)
+            self.text_widget.configure(state='disabled')
+        except Exception:
+            # Widget may be destroyed
+            pass
 
 
 class TechCompressorApp:
@@ -469,14 +487,23 @@ class TechCompressorApp:
         try:
             input_path_obj = Path(input_path)
             
-            def progress_callback(percent: int, message: str):
+            def progress_callback(current: int, total: int):
+                """Archiver progress callback: receives (current_file, total_files)."""
                 if self.cancel_flag.is_set():
                     raise InterruptedError("Operation cancelled by user")
+                # Calculate percentage based on file progress
+                # Reserve 0-5% for initialization, 5-95% for files, 95-100% for finalization
+                if total > 0:
+                    file_percent = (current / total) * 90  # 90% of progress bar
+                    percent = int(5 + file_percent)  # Start at 5%, end at 95%
+                else:
+                    percent = 5
+                message = f"Compressing file {current}/{total}"
                 self.progress_queue.put(('compress', percent, message))
             
             if input_path_obj.is_dir():
                 # Folder compression - use archiver
-                progress_callback(5, "Creating archive...")
+                self.progress_queue.put(('compress', 0, "Initializing archive..."))
                 create_archive(
                     input_path,
                     output_path,
@@ -485,21 +512,22 @@ class TechCompressorApp:
                     per_file=per_file,
                     progress_callback=progress_callback
                 )
+                self.progress_queue.put(('compress', 100, "Archive created successfully!"))
             else:
                 # Single file compression
-                progress_callback(10, "Reading file...")
+                self.progress_queue.put(('compress', 10, "Reading file..."))
                 data = input_path_obj.read_bytes()
                 
-                progress_callback(30, f"Compressing with {algo}...")
+                self.progress_queue.put(('compress', 30, f"Compressing with {algo}..."))
                 compressed = compress(data, algo=algo, password=password)
                 
-                progress_callback(80, "Writing output...")
+                self.progress_queue.put(('compress', 80, "Writing output..."))
                 Path(output_path).write_bytes(compressed)
                 
                 ratio = (len(compressed) / max(len(data), 1)) * 100
-                progress_callback(100, f"Complete! Ratio: {ratio:.1f}%")
+                self.progress_queue.put(('compress', 100, f"Complete! Ratio: {ratio:.1f}%"))
             
-            self.progress_queue.put(('compress', 100, 'Compression complete!'))
+            self.progress_queue.put(('done', 'compress', None))
             self.progress_queue.put(('done', 'compress', None))
         
         except InterruptedError as e:
@@ -553,12 +581,21 @@ class TechCompressorApp:
     def _extract_worker(self, input_path: str, output_path: str, password: Optional[str]):
         """Background worker for extraction."""
         try:
-            def progress_callback(percent: int, message: str):
+            def progress_callback(current: int, total: int):
+                """Archiver progress callback: receives (current_file, total_files)."""
                 if self.cancel_flag.is_set():
                     raise InterruptedError("Operation cancelled by user")
+                # Calculate percentage based on file progress
+                # Reserve 0-5% for initialization, 5-95% for files, 95-100% for finalization
+                if total > 0:
+                    file_percent = (current / total) * 90  # 90% of progress bar
+                    percent = int(5 + file_percent)  # Start at 5%, end at 95%
+                else:
+                    percent = 5
+                message = f"Extracting file {current}/{total}"
                 self.progress_queue.put(('extract', percent, message))
             
-            progress_callback(5, "Reading archive...")
+            self.progress_queue.put(('extract', 0, "Reading archive..."))
             
             # Check if it's an archive or compressed file
             with open(input_path, 'rb') as f:
@@ -566,30 +603,31 @@ class TechCompressorApp:
             
             if magic == b"TCAF":
                 # Archive extraction
-                progress_callback(10, "Extracting archive...")
+                self.progress_queue.put(('extract', 5, "Extracting archive..."))
                 extract_archive(
                     input_path,
                     output_path,
                     password=password,
                     progress_callback=progress_callback
                 )
+                self.progress_queue.put(('extract', 100, "Archive extracted successfully!"))
             else:
                 # Single file decompression
-                progress_callback(10, "Reading compressed file...")
+                self.progress_queue.put(('extract', 10, "Reading compressed file..."))
                 compressed = Path(input_path).read_bytes()
                 
                 # Use AUTO decompression which detects format from header
-                progress_callback(30, f"Decompressing (auto-detect)...")
+                self.progress_queue.put(('extract', 30, "Decompressing (auto-detect)..."))
                 data = decompress(compressed, algo="AUTO", password=password)
                 
-                progress_callback(80, "Writing output...")
+                self.progress_queue.put(('extract', 80, "Writing output..."))
                 # Save to output folder with original name
                 output_file = Path(output_path) / Path(input_path).stem
                 output_file.write_bytes(data)
                 
-                progress_callback(100, f"Complete! Decompressed: {len(data):,} bytes")
+                self.progress_queue.put(('extract', 100, f"Complete! Decompressed: {len(data):,} bytes"))
             
-            self.progress_queue.put(('extract', 100, 'Extraction complete!'))
+            self.progress_queue.put(('done', 'extract', None))
             self.progress_queue.put(('done', 'extract', None))
         
         except InterruptedError as e:
@@ -627,11 +665,11 @@ class TechCompressorApp:
                     if operation == 'compress':
                         self.compress_button.config(state='normal')
                         self.compress_cancel_button.config(state='disabled')
-                        messagebox.showinfo("Success", "Compression completed successfully!")
+                        # Success status already shown in progress bar and status label
                     elif operation == 'extract':
                         self.extract_button.config(state='normal')
                         self.extract_cancel_button.config(state='disabled')
-                        messagebox.showinfo("Success", "Extraction completed successfully!")
+                        # Success status already shown in progress bar and status label
                 
                 elif msg[0] == 'error':
                     operation, error = msg[1], msg[2]

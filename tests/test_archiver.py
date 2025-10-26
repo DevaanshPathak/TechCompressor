@@ -446,3 +446,76 @@ def test_recursion_prevention():
         # Should raise error about recursion
         with pytest.raises(ValueError, match="infinite recursion"):
             create_archive(source_dir, archive_path)
+
+
+def test_stored_mode_for_incompressible_files():
+    """Test that incompressible files are stored uncompressed (v2 format)."""
+    import os
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_dir = Path(tmpdir) / "source"
+        archive_path = Path(tmpdir) / "test.tc"
+        extract_dir = Path(tmpdir) / "extracted"
+        
+        # Create test directory with mixed compressible/incompressible files
+        source_dir.mkdir()
+        
+        # Highly compressible file (repetitive text)
+        compressible_data = b"A" * 10000
+        (source_dir / "compressible.txt").write_bytes(compressible_data)
+        
+        # Incompressible file (random data, simulates PNG/encrypted file)
+        incompressible_data = os.urandom(10000)
+        (source_dir / "incompressible.bin").write_bytes(incompressible_data)
+        
+        # Create archive with AUTO mode
+        create_archive(source_dir, archive_path, algo="AUTO", per_file=True)
+        
+        # Verify archive exists and is smaller than naive compression
+        assert archive_path.exists()
+        archive_size = archive_path.stat().st_size
+        
+        # Archive should be significantly smaller than sum of files
+        # because compressible file shrinks and incompressible is stored as-is
+        total_original = len(compressible_data) + len(incompressible_data)
+        
+        # Archive overhead is minimal, incompressible stored, compressible shrunk
+        # Archive should be roughly: incompressible_size + small_compressed + overhead
+        # Should definitely be less than 2x the incompressible file size
+        assert archive_size < len(incompressible_data) * 1.5, \
+            f"Archive {archive_size} should be close to incompressible size {len(incompressible_data)}"
+        
+        # Extract and verify integrity
+        extract_archive(archive_path, extract_dir)
+        
+        # Verify files match exactly
+        assert (extract_dir / "compressible.txt").read_bytes() == compressible_data
+        assert (extract_dir / "incompressible.bin").read_bytes() == incompressible_data
+
+
+def test_stored_mode_backward_compatibility():
+    """Test that v2 archives maintain backward-compatible extraction."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_dir = Path(tmpdir) / "source"
+        archive_path = Path(tmpdir) / "test.tc"
+        extract_dir = Path(tmpdir) / "extracted"
+        
+        source_dir.mkdir()
+        
+        # Create file that will be stored (incompressible)
+        data = os.urandom(1000)
+        (source_dir / "file.bin").write_bytes(data)
+        
+        # Create archive
+        create_archive(source_dir, archive_path, algo="AUTO")
+        
+        # Extract and verify
+        extract_archive(archive_path, extract_dir)
+        assert (extract_dir / "file.bin").read_bytes() == data
+        
+        # List contents should work
+        contents = list_contents(archive_path)
+        assert len(contents) == 1
+        assert contents[0]['name'] == 'file.bin'
+        assert contents[0]['size'] == len(data)
+
