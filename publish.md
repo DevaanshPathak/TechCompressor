@@ -421,33 +421,9 @@ Options:
 - Keep build logs
 - Archive signed artifacts
 
-## Automation (Future)
+## Automation
 
-Consider GitHub Actions for automated releases:
-
-```yaml
-# .github/workflows/publish.yml
-name: Publish to PyPI
-
-on:
-  release:
-    types: [created]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.10'
-      - name: Install dependencies
-        run: pip install build twine
-      - name: Build
-        run: python -m build
-      - name: Publish
-        env:
-          TWINE_USERNAME: __token__
+Publishing is done manually following the steps above. This ensures careful validation and control over each release.
           TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
         run: twine upload dist/*
 ```

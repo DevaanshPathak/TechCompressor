@@ -118,221 +118,48 @@ Standalone performance testing script with multiple data types:
 Tkinter multi-tab interface with **background threading** (lines 23-32):
 - Uses `ThreadPoolExecutor` + `queue.Queue` for non-blocking operations
 - Progress polling via `_poll_progress()` method (updates UI without freezing)
-- Custom `GUILogHandler` (lines 30-46) redirects Python logging to GUI text widget
-- Cancel support via `threading.Event` flag
-- **No blocking dialogs**: Success/completion shown via progress bar and status labels only (no `messagebox.showinfo` popups)
+## TechCompressor — AI contributor quick guide
 
-**Tab structure**:
-- Compress tab: File/folder selection, algorithm picker, password field
-- Extract tab: Archive selection, destination picker
-- Settings tab: Default algorithm, per-file mode toggle
-- Logs tab: Real-time scrolled text with log output
+This repository is a production Python compression tool (LZW, Huffman, DEFLATE) with
+AES-256-GCM encryption, a TCAF v2 archive format, a CLI and a Tkinter GUI. Tests (~152)
+are in `tests/` and must remain green for releases.
 
-**Recent fixes**:
-- Oct 26, 2025: Fixed progress callback signature mismatch between GUI workers and archiver module. GUI now properly adapts `(current, total)` callbacks to `(percent, message)` format for UI updates.
-- Oct 26, 2025: Removed blocking success dialogs; operations complete silently with visual feedback in progress bars and status labels.
-- Oct 26, 2025: Enhanced progress bar calculation - now shows 0-5% for initialization, 5-95% for file processing (proportional to files processed), and 95-100% for finalization. Status text shows "Compressing/Extracting file X/Y" with actual file counts.
-- Oct 26, 2025: Fixed GUILogHandler thread-safety issue - now safely handles logging from background threads without crashing when GUI is closing or not in main loop.
-- Oct 26, 2025: Added compression expansion warnings - logs warning when compressed file is larger than original (common for small/incompressible files).
-- Oct 26, 2025: Optimized AUTO mode with smart heuristics - entropy detection (>0.9 uses fast LZW-only), size-based algorithm skipping (DEFLATE >5MB, Huffman >50MB). Reduces compression time by 3-10x on large/incompressible files while maintaining quality for compressible data.
+What matters for an AI editing this repo (short):
+- Primary API: `techcompressor/core.py` exposes compress(data, algo, password) and
+  decompress(data, algo, password). Do not change the public signature.
+- Archiver: `techcompressor/archiver.py` implements TCAF v2. `per_file` vs single-stream
+  affects compression ratio and behavior (STORED mode used when expansion occurs).
+- Crypto: `techcompressor/crypto.py` uses AES-256-GCM + PBKDF2 (100k iterations).
+  Do NOT weaken iterations or alter header format (`TCE1 | salt | nonce | ciphertext | tag`).
+- CLI/GUI: `techcompressor/cli.py` and `techcompressor/gui.py` are entry points. GUI must
+  keep thread-safety (use `.after()` for widget updates); progress callbacks are
+  `(current:int, total:int)` and GUI adapts them to `(percent, message)`.
 
-## Development Workflow
+Conventions & gotchas to preserve:
+- Magic headers are 4 bytes (e.g. `TCZ1`,`TCH1`,`TCD1`,`TCE1`) — decompression validates them.
+- LZW code format: 2-byte big-endian words — keep packing/unpacking conventions.
+- Type hints use PEP 604 (`str | None`) — project targets Python 3.10+.
+- Logging: use `from techcompressor.utils import get_logger`; follow existing message format.
+- Tests: add tests before feature code; follow patterns in `tests/*_*.py` (empty input, single byte,
+  large input, wrong magic header, password mismatch).
 
-### Environment & Testing
-```bash
-pip install -r requirements.txt  # cryptography, tqdm, pytest
-pytest                            # Run 152 tests (all should pass, 2 skipped)
-python bench.py                   # Performance benchmarks with size/speed comparison
-python -m techcompressor.cli --gui  # Launch GUI for manual testing
-# OR use entry point:
-techcompressor-gui                # Alternative GUI launcher (defined in pyproject.toml)
-```
+Common developer workflows (use these exact commands):
+- Setup: `pip install -r requirements.txt`
+- Tests: `pytest` (or `pytest tests/test_release_smoke.py -v` for quick smoke)
+- Benchmarks: `python bench.py`
+- GUI dev: `python -m techcompressor.cli --gui` or `techcompressor-gui`
+- Windows release: run PowerShell script `.uild_release.ps1` (uses PyInstaller; note `SPECPATH` use).
 
-**Platform compatibility**: Cross-platform (Windows/Linux/macOS) with no platform-specific code. Uses `pathlib.Path` for path handling. Tkinter GUI requires Python's built-in `tkinter` module (included on Windows/macOS, may need `python3-tk` package on Linux).
+When changing behavior, follow this checklist:
+1. Keep public API signatures stable (`core.compress/decompress`).
+2. Update/extend unit tests in `tests/` and run `pytest` locally.
+3. Preserve magic header checks and crypto header layout.
+4. If adding new archive format or magic bytes, register a unique 4-byte header and add tests.
+5. Update `techcompressor/__init__.py` and `pyproject.toml` together when bumping versions.
 
-**Windows development**:
-- Default shell: PowerShell (pwsh.exe)
-- Build script: `build_release.ps1` - automated PyInstaller build with tests
-- Commands use PowerShell syntax: `Remove-Item`, `Get-ChildItem`, etc.
-- PyInstaller creates standalone `TechCompressor.exe` (~15.4MB in clean venv)
-- **Critical**: Use clean virtual environment for builds to avoid bloat from global packages
-- **Critical**: `techcompressor.spec` uses `SPECPATH` not `__file__` (PyInstaller limitation)
-- **Critical**: GUI must use absolute imports (`from techcompressor.x import y`) not relative imports (`from .x import y`) for PyInstaller compatibility
+Files to inspect first for most tasks: `techcompressor/core.py`, `archiver.py`, `crypto.py`,
+`cli.py`, `gui.py`, `utils.py`, `bench.py`, `build_release.ps1`, and `tests/`.
 
-**Test organization** (`tests/`):
-- `test_lzw.py`, `test_huffman.py`, `test_deflate.py` - Algorithm-specific tests
-- `test_crypto.py` - Encryption/decryption + password validation
+If anything above is unclear or you want more examples (small patch + tests), tell me which
+area to expand and I will add a short, concrete example change and its tests.
 - `test_archiver.py` - Archive creation/extraction + security validation
-- `test_integration.py` - Cross-algorithm, end-to-end workflows
-- `test_perf_sanity.py` - Performance regression checks
-
-**Critical test patterns**:
-- Always test empty input, single byte, large input (triggers dictionary resets)
-- Test wrong magic header detection (`ValueError: Invalid magic header`)
-- Test password mismatch (`ValueError: Decryption failed - wrong password`)
-- Verify compression actually reduces size on repetitive data
-
-### Versioning & Releases
-- **Single source of truth**: `techcompressor/__init__.py` defines `__version__`
-- Must update **both** `__init__.py` and `pyproject.toml` version fields
-- Current: `1.0.0` (Production/Stable)
-
-### Release Workflow
-Complete process documented in `publish.md`:
-
-**Pre-release verification**:
-```bash
-# 1. Update version in __init__.py and pyproject.toml
-# 2. Update CHANGELOG.md and RELEASE_NOTES.md
-# 3. Run full test suite
-pytest                                       # Must pass all tests
-pytest tests/test_release_smoke.py -v        # Quick validation (14 tests)
-python bench.py                              # Performance check
-
-# 4. Clean build artifacts (PowerShell on Windows)
-Remove-Item -Recurse -Force dist/, build/, *.egg-info -ErrorAction SilentlyContinue
-Get-ChildItem -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
-```
-
-**Build and publish**:
-```bash
-# 1. Build packages
-python -m build                              # Creates wheel + source dist
-twine check dist/*                           # Verify package metadata
-
-# 2. Test in clean environment (PowerShell on Windows)
-python -m venv test_env
-.\test_env\Scripts\Activate.ps1             # Linux/Mac: source test_env/bin/activate
-pip install dist/techcompressor-*.whl
-python -c "import techcompressor; print(techcompressor.__version__)"
-deactivate
-
-# 3. Publish to TestPyPI (optional but recommended)
-twine upload --repository testpypi dist/*
-
-# 4. Create Git tag and publish to PyPI
-git tag -a v1.0.0 -m "Release v1.0.0"
-git push origin v1.0.0
-twine upload dist/*                          # ⚠️ Irreversible!
-```
-
-**Windows executable build** (PyInstaller):
-```powershell
-# Automated via build_release.ps1 script
-.\build_release.ps1                          # Runs tests, builds EXE, creates release package
-
-# Manual build (if needed)
-python -m PyInstaller techcompressor.spec --clean
-# Output: dist\TechCompressor.exe (standalone GUI executable)
-```
-
-**Critical release requirements**:
-- Version must be updated in BOTH `__init__.py` and `pyproject.toml`
-- All 152 tests must pass (2 skipped is expected) before tagging
-- TestPyPI validation recommended for major releases
-- Git tag format: `v{major}.{minor}.{patch}` (e.g., `v1.0.0`)
-- PyInstaller spec file (`techcompressor.spec`) includes all dependencies and data files
-- **PyInstaller gotcha**: Use `SPECPATH` variable, not `__file__` (not defined in spec context)
-- **PyInstaller gotcha**: Use absolute imports in entry point files (gui.py) not relative imports
-
-## Critical Patterns & Conventions
-
-### Logging Pattern
-```python
-from techcompressor.utils import get_logger
-logger = get_logger(__name__)  # Returns pre-configured logger with standard format
-```
-Format: `[INFO] techcompressor.core: Starting LZW compression of 1024 bytes`
-
-### Type Hints (PEP 604 unions with `|`)
-```python
-def compress(data: bytes, algo: str = "LZW", password: str | None = None) -> bytes:
-```
-**Requires Python 3.10+** - don't use `Optional[str]` or `Union[str, None]`
-
-### Error Handling Philosophy
-- `NotImplementedError`: For unsupported algorithms (e.g., "ARITHMETIC")
-- `ValueError`: For corrupted data, wrong passwords, invalid paths
-- **No silent failures**: Always raise exceptions for unrecoverable errors
-- Magic header validation is **mandatory** - prevents algorithm mismatch bugs
-
-### Progress Callbacks (for GUI/CLI integration)
-**Archiver signature**: `progress_callback(current: int, total: int)` - receives file count progress
-**GUI adaptation**: Converts to `(percent, message)` format internally for UI updates
-
-```python
-# Archiver calls with (current_file, total_files)
-def progress_callback(current: int, total: int):
-    percent = int((current / max(total, 1)) * 100)
-    message = f"Processing file {current}/{total}"
-    # Send to GUI queue...
-```
-
-Used in `archiver.py` for file-by-file progress during archive creation/extraction.
-
-## Performance Characteristics
-
-**Algorithm selection guide** (from benchmarks):
-- **DEFLATE**: Best compression ratio (~1% on repetitive data), moderate speed (6 MB/s) - SLOW on large files, skipped in AUTO >5MB
-- **LZW**: Fastest (3 MB/s), decent ratio (~9%), lowest memory - AUTO's default fallback
-- **Huffman**: Middle ground (~44% ratio, 2.5 MB/s) - skipped in AUTO >50MB
-- **AUTO mode optimizations**:
-  - Entropy detection: samples first 4KB, calculates unique_bytes/256
-  - High entropy (>0.9) = incompressible → fast LZW-only path
-  - Size-based algorithm skipping reduces compression time by 3-10x on large files
-  - Random 1MB: ~1.2s (entropy-optimized)
-  - Repetitive 10MB: ~10s with 99.9% compression (DEFLATE skipped)
-
-**Encryption overhead**: ~50-100ms for PBKDF2 key derivation (intentional security feature)
-
-**Archive modes**:
-- `per_file=False`: Better for text/source code (similar content benefits from shared dictionary)
-- `per_file=True`: Better for mixed content, media files, or when parallel processing desired
-
-**Memory considerations**:
-- LZW dictionary: ~32KB (4096 entries × 8 bytes)
-- Huffman tree: ~512 bytes worst case (256 leaf nodes)
-- DEFLATE sliding window: 32KB
-- All algorithms support streaming for files >16MB (no full-memory load)
-
-**When compression doesn't help** (important):
-- **Small files** (< 500 bytes): Compression overhead (headers, metadata) often exceeds savings
-- **Already compressed**: JPG, PNG, MP4, ZIP, EXE files are already compressed - will expand!
-- **Encrypted/Random data**: No patterns to compress - will expand!
-- **Expected behavior**: AUTO mode logs WARNING when output > input, archiver logs expansion ratio
-- **Solution**: For archives with mixed content, this is normal - compressed files expand slightly, text files shrink significantly, overall archive still benefits
-
-## Security Considerations
-
-**Path safety** (`archiver.py`):
-- Always call `_validate_path()` before file operations
-- Use `_sanitize_extract_path()` when extracting archives
-- Reject symlinks by default (prevents traversal outside expected boundaries)
-
-**Encryption notes**:
-- Password loss = permanent data loss (no backdoors)
-- PBKDF2 intentionally slow (~50-100ms) - don't "optimize" iteration count
-- Compression reveals patterns even with encryption (semantic security limitation)
-
-## Common Pitfalls
-
-1. **Don't use terminal commands for Python execution in tests** - use `pytest` directly
-2. **Magic headers are 4 bytes** - always check `len(data) >= 4` before slicing
-3. **LZW codes are 2 bytes** - compressed data length must be even (validation at line 96)
-4. **Huffman tree serialization** - tree format is tightly coupled to decompression logic
-5. **GUI threading** - all Tkinter widget updates must use `.after()` or run in main thread
-6. **Archive recursion** - always check output path not inside source path
-7. **PyInstaller spec files** - use `SPECPATH` not `__file__` (undefined in spec execution context)
-8. **PyInstaller entry points** - use absolute imports (`from techcompressor.x`) not relative (`from .x`) in files run as main entry points
-
-## When Adding Features
-
-1. **Maintain API stability**: `compress()` and `decompress()` signatures are public API
-2. **Add tests first**: Follow TDD pattern - write test, implement, verify
-3. **Update magic headers**: New formats need unique 4-byte identifiers
-4. **Document algorithms**: Include Big-O complexity, trade-offs in docstrings
-5. **Benchmark regressions**: Run `bench.py` before committing performance changes
-
-## License & Contact
-MIT License - Copyright (c) 2025 Devaansh Pathak  
-Repository: https://github.com/DevaanshPathak/TechCompressor

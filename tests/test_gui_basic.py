@@ -2,7 +2,7 @@
 Basic GUI tests for TechCompressor
 
 Tests GUI initialization and background task execution.
-Uses headless mode (tk.Tk().withdraw()) for CI/CD compatibility.
+Uses headless mode (tk.Tk().withdraw()) for testing without display.
 """
 
 import pytest

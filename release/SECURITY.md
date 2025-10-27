@@ -204,7 +204,7 @@ TechCompressor v1.0.0 has **not** undergone formal third-party security audit.
 
 - Seek community security review
 - Consider professional audit for v2.0.0
-- Implement automated security scanning in CI/CD
+- Implement automated security scanning tools
 
 ## Vulnerability Disclosure History
 
