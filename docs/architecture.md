@@ -29,19 +29,26 @@ TechCompressor is designed as a modular compression framework with clear separat
 │  Algorithms  │     │  Encryption  │     │   Archiver   │
 │  (core.py)   │     │  (crypto.py) │     │(archiver.py) │
 │              │     │              │     │              │
-│ - LZW        │     │ - AES-256    │     │ - TCAF fmt   │
+│ - LZW        │     │ - AES-256    │     │ - TCAF v2    │
 │ - Huffman    │     │ - PBKDF2     │     │ - Metadata   │
 │ - DEFLATE    │     │ - GCM auth   │     │ - Security   │
-└──────────────┘     └──────────────┘     └──────────────┘
-        │                     │                     │
-        └─────────────────────┼─────────────────────┘
-                              │
-                      ┌───────▼────────┐
-                      │  Utils (utils.py) │
-                      │  - Logging        │
-                      │  - Helpers        │
-                      └───────────────────┘
+│ - STORED     │     │              │     │ - Recovery   │
+└──────────────┘     └──────────────┘     └──────┬───────┘
+        │                     │                   │
+        └─────────────────────┼───────────────────┘
+                              │                   │
+                      ┌───────▼────────┐   ┌──────▼────────┐
+                      │  Utils (utils.py) │   │  Recovery     │
+                      │  - Logging        │   │ (recovery.py) │
+                      │  - Helpers        │   │  - Reed-Solomon│
+                      └───────────────────┘   └───────────────┘
 ```
+
+**v1.1.0 Architecture Additions:**
+- `recovery.py` module for PAR2-style error correction
+- Solid compression state management in `core.py` (global dictionary persistence)
+- Multi-threading support in `archiver.py` (ThreadPoolExecutor)
+- STORED algorithm for incompressible file detection
 
 ## Module Responsibilities
 

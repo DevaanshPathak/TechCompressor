@@ -4,6 +4,8 @@
 
 TechCompressor is a **production-ready (v1.1.0)** modular Python compression framework with three algorithms (LZW, Huffman, DEFLATE), AES-256-GCM encryption, TCAF v2 archive format with recovery records, CLI, and GUI. Development is complete with 152 passing tests (2 skipped).
 
+**Target**: Python 3.10+ | **Status**: Production/Stable | **License**: MIT
+
 ## New in v1.1.0
 - **Dictionary Persistence**: Solid compression mode now preserves LZW dictionaries between files for 10-30% better ratios
 - **Recovery Records**: PAR2-style Reed-Solomon error correction for archive repair (configurable 0-10% redundancy)
@@ -121,10 +123,21 @@ Standalone performance testing script with multiple data types:
 - **Output format**: Pretty-printed tables with size/time comparisons
 - Run directly: `python bench.py` (no CLI integration needed)
 
+### Recovery Module (`techcompressor/recovery.py`) - v1.1.0
+PAR2-style error correction for archive repair:
+- **Reed-Solomon Implementation**: `ReedSolomonSimple` class with XOR-based parity
+- **Block-based Recovery**: 64KB blocks with configurable parity (0-10% redundancy)
+- **Archive Integration**: Recovery footer appended to TCAF v2 archives (TCRR marker)
+- **Functions**: `generate_recovery_records()`, `apply_recovery()`, `verify_recovery()`
+- **Critical**: Can recover from single-block corruption; multi-block requires more parity
+
 ### GUI (`techcompressor/gui.py`)
 Tkinter multi-tab interface with **background threading** (lines 23-32):
 - Uses `ThreadPoolExecutor` + `queue.Queue` for non-blocking operations
 - Progress polling via `_poll_progress()` method (updates UI without freezing)
+- **Thread-safety rule**: ALL widget updates MUST use `.after(0, callback)` - never modify widgets from worker threads
+- Progress callbacks: GUI expects `(percent: float, message: str)` format, archiver provides `(current: int, total: int)` - GUI adapts these
+- Keyboard shortcuts: Ctrl+Shift+C (compress), Ctrl+Shift+E (extract)
 ## TechCompressor — AI contributor quick guide
 
 This repository is a production Python compression tool (LZW, Huffman, DEFLATE) with
@@ -163,6 +176,52 @@ When changing behavior, follow this checklist:
 3. Preserve magic header checks and crypto header layout.
 4. If adding new archive format or magic bytes, register a unique 4-byte header and add tests.
 5. Update `techcompressor/__init__.py` and `pyproject.toml` together when bumping versions.
+
+## ⚠️ CRITICAL: Release Documentation Checklist
+
+**BEFORE suggesting a release or running build_release.ps1, ALWAYS update these files:**
+
+1. **README.md**:
+   - Version badge (line 3): `[![Version](https://img.shields.io/badge/version-X.X.X-blue.svg)]`
+   - Test count badge (line 6): `[![Tests](https://img.shields.io/badge/tests-XXX%20passed-brightgreen.svg)]`
+   - Feature descriptions (add new v1.X.X features under "✨ Features")
+   - Python API examples (update function signatures with new parameters)
+   - Comparison table (update with new features vs competitors)
+
+2. **RELEASE_NOTES.md**:
+   - Update version in title: `# TechCompressor vX.X.X Release Notes`
+   - Update release date: `**Release Date**: Month DD, YYYY`
+   - Add "What's New in vX.X.X" section with all new features
+   - Update "Migration from vX.Y.Z to vX.X.X" section
+   - Update "Recommended Usage" section with new parameters/features
+   - Update code examples with new function signatures
+
+3. **CHANGELOG.md**:
+   - Add new version section at top with release date
+   - List all Added/Changed/Fixed items in detail
+   - Include performance metrics if applicable
+   - Reference related issue numbers if available
+
+4. **pyproject.toml**:
+   - Update `version = "X.X.X"` (line 7)
+
+5. **techcompressor/__init__.py**:
+   - Update `__version__ = "X.X.X"`
+   - Update `__all__` exports if new public functions added
+
+6. **tests/test_release_smoke.py**:
+   - Update version assertion: `assert techcompressor.__version__ == "X.X.X"`
+
+7. **.github/copilot-instructions.md** (this file):
+   - Update "Project Overview" version number
+   - Update "New in vX.X.X" section
+   - Update API signatures in examples
+
+**DO NOT:**
+- Suggest building or releasing without updating ALL documentation first
+- Tell user "ready for release" until all markdown files are updated
+- Skip updating comparison tables or feature lists
+- Forget to update test count badges after adding new tests
 
 Files to inspect first for most tasks: `techcompressor/core.py`, `archiver.py`, `crypto.py`,
 `cli.py`, `gui.py`, `utils.py`, `bench.py`, `build_release.ps1`, and `tests/`.

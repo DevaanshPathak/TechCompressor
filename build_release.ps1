@@ -37,7 +37,6 @@ Write-Host ""
 Write-Host "[2/6] Cleaning previous builds..." -ForegroundColor Yellow
 if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
 if (Test-Path "dist") { Remove-Item -Recurse -Force "dist" }
-if (Test-Path "release") { Remove-Item -Recurse -Force "release" }
 Write-Host "✓ Cleaned" -ForegroundColor Green
 
 # Run tests
@@ -77,19 +76,22 @@ if (Test-Path $exePath) {
     exit 1
 }
 
-# Create release package
+# Create release ZIP package
 Write-Host ""
-Write-Host "[6/6] Creating release package..." -ForegroundColor Yellow
-New-Item -ItemType Directory -Force -Path "release" | Out-Null
+Write-Host "[6/6] Creating release ZIP..." -ForegroundColor Yellow
+
+# Create temporary staging directory
+$tempDir = "dist\temp_release"
+New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
 
 # Copy executable
-Copy-Item $exePath "release\"
+Copy-Item $exePath "$tempDir\"
 
 # Copy documentation
-Copy-Item "README.md" "release\"
-Copy-Item "LICENSE" "release\"
-Copy-Item "CHANGELOG.md" "release\"
-Copy-Item "SECURITY.md" "release\"
+Copy-Item "README.md" "$tempDir\"
+Copy-Item "LICENSE" "$tempDir\"
+Copy-Item "CHANGELOG.md" "$tempDir\"
+Copy-Item "SECURITY.md" "$tempDir\"
 
 # Create release README
 $releaseReadme = @"
@@ -136,16 +138,16 @@ MIT License - Free for personal and commercial use
 Copyright (c) 2025 Devaansh Pathak
 "@
 
-$releaseReadme | Out-File -FilePath "release\README_RELEASE.txt" -Encoding UTF8
-
-Write-Host "✓ Release package created in: release\" -ForegroundColor Green
+$releaseReadme | Out-File -FilePath "$tempDir\README_RELEASE.txt" -Encoding UTF8
 
 # Create ZIP for distribution
-Write-Host ""
-Write-Host "Creating ZIP archive for GitHub release..." -ForegroundColor Yellow
 $zipName = "TechCompressor-v$VERSION-Windows-x64.zip"
 $zipPath = "dist\$zipName"
-Compress-Archive -Path "release\*" -DestinationPath $zipPath -Force
+Compress-Archive -Path "$tempDir\*" -DestinationPath $zipPath -Force
+
+# Clean up temp directory
+Remove-Item -Recurse -Force $tempDir
+
 if (Test-Path $zipPath) {
     $zipSize = (Get-Item $zipPath).Length / 1MB
     Write-Host "✓ Release ZIP created: $zipPath ($($zipSize.ToString('F2')) MB)" -ForegroundColor Green
@@ -162,8 +164,7 @@ Write-Host "================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Release files:" -ForegroundColor White
 Write-Host "  • Standalone EXE: dist\TechCompressor.exe" -ForegroundColor White
-Write-Host "  • Release package: release\" -ForegroundColor White
-Write-Host "  • GitHub release: $zipPath" -ForegroundColor White
+Write-Host "  • GitHub release ZIP: $zipPath" -ForegroundColor White
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "  1. Test the executable: dist\TechCompressor.exe" -ForegroundColor White

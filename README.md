@@ -1,11 +1,11 @@
 # TechCompressor
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/DevaanshPathak/TechCompressor)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/DevaanshPathak/TechCompressor)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-137%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-152%20passed-brightgreen.svg)](#testing)
 
-**TechCompressor** is a production-ready, modular Python compression framework featuring multiple algorithms, military-grade encryption, and both CLI and GUI interfaces. Built for performance, security, and ease of use.
+**TechCompressor** is a production-ready, modular Python compression framework featuring multiple algorithms, military-grade encryption, solid compression with dictionary persistence, PAR2-style recovery records, and both CLI and GUI interfaces. Built for performance, security, and RAR-competitive features.
 
 ---
 
@@ -15,6 +15,13 @@
 - **LZW (Lempel-Ziv-Welch)**: Fast dictionary-based compression, ideal for repetitive data
 - **Huffman Coding**: Optimal for data with non-uniform frequency distributions
 - **DEFLATE**: Industry-standard hybrid (LZ77 + Huffman), best overall compression
+- **STORED**: Automatic detection and direct storage of incompressible files
+
+### 🔗 Advanced Archive Features (v1.1.0)
+- **Solid Compression**: Dictionary persistence across files for 10-30% better ratios
+- **Recovery Records**: PAR2-style Reed-Solomon error correction (0-10% redundancy)
+- **Multi-threaded**: Parallel per-file compression for 2-4x faster archives
+- **Smart AUTO mode**: Entropy detection and algorithm selection heuristics
 
 ### 🔒 Military-Grade Encryption
 - **AES-256-GCM**: Authenticated encryption with integrity verification
@@ -23,11 +30,12 @@
 - No backdoors or recovery mechanisms
 
 ### 📦 Archive Management
-- **TCAF Format**: Custom TechCompressor Archive Format
+- **TCAF v2 Format**: Custom TechCompressor Archive Format with backward compatibility
 - Compress entire folders with metadata preservation
 - Supports both per-file and single-stream compression
 - Path traversal protection and security validation
 - Preserves timestamps, permissions, and relative paths
+- Recovery records for archive repair and corruption detection
 
 ### 💻 Dual Interface
 - **CLI**: Full-featured command-line with benchmarking and verification
@@ -101,7 +109,10 @@ create_archive(
     archive_path="backup.tc",
     algo="DEFLATE",
     password="secret",
-    per_file=False  # Single-stream for best compression
+    per_file=False,  # Single-stream for best compression
+    persist_dict=True,  # NEW v1.1.0: Solid compression
+    recovery_percent=5.0,  # NEW v1.1.0: 5% recovery records
+    max_workers=4  # NEW v1.1.0: Parallel compression
 )
 
 # Extract archive
@@ -131,12 +142,15 @@ How does TechCompressor compare to ZIP, RAR, and 7-Zip? Here's a comprehensive b
 | **Compression Algorithms** | LZW, Huffman, DEFLATE | DEFLATE | RAR (proprietary) | LZMA, LZMA2, DEFLATE |
 | **Best Compression Ratio** | ★★★★☆ (99%+ on repetitive) | ★★★☆☆ | ★★★★★ (industry best) | ★★★★★ |
 | **Compression Speed** | ★★★★☆ (3-6 MB/s) | ★★★★☆ | ★★☆☆☆ (slow) | ★★★☆☆ |
+| **Solid Compression** | ✅ v1.1.0 (10-30% better) | ❌ | ✅ | ✅ |
+| **Recovery Records** | ✅ v1.1.0 (PAR2-style) | ❌ | ✅ | ❌ |
+| **Multi-threading** | ✅ v1.1.0 (per-file) | ⚠️ Limited | ✅ | ✅ |
 | **Encryption** | AES-256-GCM (100K iterations) | AES-256 (ZipCrypto weak) | AES-256 | AES-256 |
 | **Smart Storage Mode** | ✅ Auto-detects incompressible | ❌ Always compresses | ✅ | ✅ |
 | **Archive Metadata** | Timestamps, permissions | Timestamps | Full metadata | Full metadata |
 | **Python API** | ✅ Native | ⚠️ Via zipfile | ❌ | ⚠️ Via py7zr |
 | **GUI Included** | ✅ Cross-platform | ❌ OS-dependent | ✅ Commercial | ✅ |
-| **Format Compatibility** | TCAF (custom) | Universal | Universal | Universal |
+| **Format Compatibility** | TCAF v2 (custom) | Universal | Universal | Universal |
 | **Multi-algorithm Choice** | ✅ 3 algorithms + AUTO | ❌ DEFLATE only | ❌ RAR only | ✅ Multiple |
 | **Use Case** | Development, scripting, automation | General purpose | Maximum compression | Open-source alternative |
 
