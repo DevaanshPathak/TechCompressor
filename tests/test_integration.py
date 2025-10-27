@@ -417,3 +417,241 @@ def test_password_backward_compatibility():
     # Should decompress without password
     decompressed = decompress(compressed, "LZW")
     assert decompressed == data
+
+
+# =============================================================================
+# v1.2.0 Integration Tests
+# =============================================================================
+
+def test_entropy_detection_with_all_algorithms():
+    """Test entropy detection works across different compression algorithms (v1.2.0)"""
+    from techcompressor.core import is_likely_compressed
+    
+    # High entropy data (simulated compressed file)
+    high_entropy = os.urandom(2000)
+    
+    # Test with various "compressed" file extensions
+    assert is_likely_compressed(high_entropy, "archive.zip") == True
+    assert is_likely_compressed(high_entropy, "image.jpg") == True
+    assert is_likely_compressed(high_entropy, "video.mp4") == True
+    assert is_likely_compressed(high_entropy, "audio.mp3") == True
+    
+    # Low entropy data (repetitive text)
+    low_entropy = b"Hello World " * 100
+    
+    # Should not detect as compressed for text files
+    assert is_likely_compressed(low_entropy, "document.txt") == False
+    assert is_likely_compressed(low_entropy, "code.py") == False
+    
+    # But should detect based on entropy alone if no extension
+    assert is_likely_compressed(high_entropy, "unknown") == True
+    assert is_likely_compressed(low_entropy, "unknown") == False
+
+
+def test_auto_mode_entropy_integration():
+    """Test AUTO mode integrates with entropy detection (v1.2.0)"""
+    # Repetitive data (should compress well)
+    repetitive = b"ABCDEFGH" * 1000
+    
+    compressed = compress(repetitive, "AUTO")
+    decompressed = decompress(compressed, "AUTO")
+    
+    assert decompressed == repetitive
+    assert len(compressed) < len(repetitive)
+    
+    # High entropy data (may not compress as well, but should still roundtrip)
+    random_data = os.urandom(1000)
+    
+    compressed_random = compress(random_data, "AUTO")
+    decompressed_random = decompress(compressed_random, "AUTO")
+    
+    assert decompressed_random == random_data
+
+
+def test_archive_with_filters_and_metadata():
+    """Test archiver integration with filters and metadata (v1.2.0)"""
+    import tempfile
+    from pathlib import Path
+    from techcompressor.archiver import create_archive, extract_archive, list_contents
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_dir = Path(tmpdir) / "source"
+        archive_path = Path(tmpdir) / "filtered.tc"
+        extract_dir = Path(tmpdir) / "extracted"
+        
+        source_dir.mkdir()
+        
+        # Create test files
+        (source_dir / "include.txt").write_bytes(b"x" * 1000)
+        (source_dir / "exclude.tmp").write_bytes(b"x" * 1000)
+        (source_dir / "small.txt").write_bytes(b"x" * 10)
+        
+        # Create archive with filters and metadata
+        create_archive(
+            source_dir,
+            archive_path,
+            exclude_patterns=["*.tmp"],
+            min_file_size=100,
+            comment="Test archive with filters",
+            creator="Integration Test"
+        )
+        
+        # List contents and verify metadata
+        contents = list_contents(archive_path)
+        
+        # Should have metadata + 1 file (include.txt only)
+        if 'metadata' in contents[0]:
+            assert len(contents) == 2
+            assert contents[0]['metadata']['comment'] == "Test archive with filters"
+            assert contents[0]['metadata']['creator'] == "Integration Test"
+            assert contents[1]['name'] == 'include.txt'
+        
+        # Extract and verify
+        extract_archive(archive_path, extract_dir)
+        assert (extract_dir / "include.txt").exists()
+        assert not (extract_dir / "exclude.tmp").exists()
+        assert not (extract_dir / "small.txt").exists()
+
+
+def test_incremental_with_encryption():
+    """Test incremental backup works with encryption (v1.2.0)"""
+    import tempfile
+    from pathlib import Path
+    from techcompressor.archiver import create_archive, extract_archive
+    import time
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_dir = Path(tmpdir) / "source"
+        base_archive = Path(tmpdir) / "base.tc"
+        incremental_archive = Path(tmpdir) / "incremental.tc"
+        extract_dir = Path(tmpdir) / "extracted"
+        
+        source_dir.mkdir()
+        
+        # Create initial files
+        (source_dir / "file1.txt").write_text("Data 1")
+        (source_dir / "file2.txt").write_text("Data 2")
+        
+        # Create encrypted base archive
+        password = "test_password_123"
+        create_archive(source_dir, base_archive, password=password)
+        
+        # Wait and modify
+        time.sleep(0.1)
+        (source_dir / "file2.txt").write_text("Modified 2")
+        (source_dir / "file3.txt").write_text("Data 3")
+        
+        # Create encrypted incremental archive
+        create_archive(
+            source_dir,
+            incremental_archive,
+            password=password,
+            incremental=True,
+            base_archive=base_archive
+        )
+        
+        # Extract incremental
+        extract_archive(incremental_archive, extract_dir, password=password)
+        
+        # Should have only changed/new files
+        assert not (extract_dir / "file1.txt").exists()
+        assert (extract_dir / "file2.txt").exists()
+        assert (extract_dir / "file3.txt").exists()
+
+
+def test_solid_compression_state_reset():
+    """Test that solid compression state can be reset (v1.1.0/v1.2.0)"""
+    from techcompressor.core import compress, decompress, reset_solid_compression_state
+    
+    # Compress with solid mode
+    data1 = b"ABCDEFGH" * 100
+    compressed1 = compress(data1, "LZW", persist_dict=True)
+    
+    data2 = b"ABCDEFGH" * 100  # Same pattern
+    compressed2 = compress(data2, "LZW", persist_dict=True)
+    
+    # Reset state
+    reset_solid_compression_state()
+    
+    # Compress again (should be independent of previous compressions)
+    data3 = b"ABCDEFGH" * 100
+    compressed3 = compress(data3, "LZW", persist_dict=True)
+    
+    # All should decompress correctly (persist_dict only affects compression)
+    # Each compressed blob is self-contained for decompression
+    assert decompress(compressed1, "LZW") == data1
+    # Note: compressed2 with persist_dict cannot be decompressed standalone
+    # because it relies on the dictionary state from compressed1
+    # This is expected behavior for solid compression
+    assert decompress(compressed3, "LZW") == data3
+    
+    # Verify reset worked - compressed3 should be similar size to compressed1
+    # (both start with fresh dictionary)
+    assert abs(len(compressed3) - len(compressed1)) < 50  # Allow small variance
+
+
+def test_metadata_with_unicode():
+    """Test archive metadata handles Unicode correctly (v1.2.0)"""
+    import tempfile
+    from pathlib import Path
+    from techcompressor.archiver import create_archive, list_contents
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_dir = Path(tmpdir) / "source"
+        archive_path = Path(tmpdir) / "unicode.tc"
+        
+        source_dir.mkdir()
+        (source_dir / "test.txt").write_text("Test")
+        
+        # Create archive with Unicode metadata
+        unicode_comment = "Архив с кириллицей 中文字符"
+        unicode_creator = "Devaansh Pathak 🚀"
+        
+        create_archive(
+            source_dir,
+            archive_path,
+            comment=unicode_comment,
+            creator=unicode_creator
+        )
+        
+        # List contents and verify Unicode preserved
+        contents = list_contents(archive_path)
+        
+        if 'metadata' in contents[0]:
+            metadata = contents[0]['metadata']
+            assert metadata['comment'] == unicode_comment
+            assert metadata['creator'] == unicode_creator
+
+
+def test_empty_metadata_fields():
+    """Test archive handles empty/None metadata gracefully (v1.2.0)"""
+    import tempfile
+    from pathlib import Path
+    from techcompressor.archiver import create_archive, list_contents
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_dir = Path(tmpdir) / "source"
+        archive_path = Path(tmpdir) / "empty_meta.tc"
+        
+        source_dir.mkdir()
+        (source_dir / "test.txt").write_text("Test")
+        
+        # Create archive with empty metadata
+        create_archive(
+            source_dir,
+            archive_path,
+            comment=None,
+            creator=None
+        )
+        
+        # List contents - should work with empty metadata
+        contents = list_contents(archive_path)
+        
+        # If metadata is present, verify structure
+        if 'metadata' in contents[0]:
+            metadata = contents[0]['metadata']
+            # creation_date should always be present
+            assert 'creation_date' in metadata
+            # comment and creator should NOT be present when empty (length 0)
+            # This is expected behavior - only non-empty fields are stored
+

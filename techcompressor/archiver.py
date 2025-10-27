@@ -11,6 +11,8 @@ import tarfile
 from pathlib import Path
 from typing import List, Dict, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+import fnmatch
 from .core import compress, decompress, reset_solid_compression_state
 from .recovery import generate_recovery_records
 from .utils import get_logger
@@ -117,6 +119,64 @@ def _sanitize_extract_path(entry_name: str, dest_path: Path) -> Path:
     return target
 
 
+def _should_exclude_file(
+    file_path: Path,
+    exclude_patterns: List[str] | None = None,
+    max_file_size: int | None = None,
+    min_file_size: int | None = None,
+    modified_after: datetime | None = None
+) -> bool:
+    """
+    Check if file should be excluded based on filtering criteria.
+    
+    Args:
+        file_path: Path to check
+        exclude_patterns: List of glob patterns to exclude
+        max_file_size: Maximum file size in bytes (None = no limit)
+        min_file_size: Minimum file size in bytes (None = no limit)
+        modified_after: Only include files modified after this datetime
+    
+    Returns:
+        True if file should be excluded, False otherwise
+    """
+    # Check exclude patterns
+    if exclude_patterns:
+        file_str = str(file_path)
+        for pattern in exclude_patterns:
+            # Support both simple patterns and path-based patterns
+            if fnmatch.fnmatch(file_str, f"*{pattern}*") or fnmatch.fnmatch(file_path.name, pattern):
+                logger.debug(f"Excluding {file_path} (matches pattern: {pattern})")
+                return True
+    
+    # Check file size
+    try:
+        file_size = file_path.stat().st_size
+        
+        if max_file_size is not None and file_size > max_file_size:
+            logger.debug(f"Excluding {file_path} (size {file_size} > max {max_file_size})")
+            return True
+        
+        if min_file_size is not None and file_size < min_file_size:
+            logger.debug(f"Excluding {file_path} (size {file_size} < min {min_file_size})")
+            return True
+    except OSError as e:
+        logger.warning(f"Could not stat {file_path}: {e}")
+        return True
+    
+    # Check modification time
+    if modified_after is not None:
+        try:
+            mtime = datetime.fromtimestamp(file_path.stat().st_mtime)
+            if mtime < modified_after:
+                logger.debug(f"Excluding {file_path} (mtime {mtime} < {modified_after})")
+                return True
+        except OSError as e:
+            logger.warning(f"Could not get mtime for {file_path}: {e}")
+            return True
+    
+    return False
+
+
 def create_archive(
     source_path: str | Path,
     archive_path: str | Path,
@@ -125,6 +185,15 @@ def create_archive(
     per_file: bool = True,
     recovery_percent: float = 0.0,
     max_workers: int | None = None,
+    exclude_patterns: List[str] | None = None,
+    max_file_size: int | None = None,
+    min_file_size: int | None = None,
+    modified_after: datetime | None = None,
+    incremental: bool = False,
+    base_archive: str | Path | None = None,
+    volume_size: int | None = None,
+    comment: str | None = None,
+    creator: str | None = None,
     progress_callback: Callable[[int, int], None] | None = None
 ) -> None:
     """
@@ -139,6 +208,15 @@ def create_archive(
                   If False, compress entire stream (better ratio, solid mode).
         recovery_percent: Percentage of data for recovery records (0-10%, 0=disabled)
         max_workers: Max parallel workers for per_file=True (None=auto, 1=sequential)
+        exclude_patterns: List of glob patterns to exclude (e.g., ["*.tmp", ".git/"])
+        max_file_size: Maximum file size in bytes to include (None=no limit)
+        min_file_size: Minimum file size in bytes to include (None=no limit)
+        modified_after: Only include files modified after this datetime (None=all files)
+        incremental: If True, only archive files changed since base_archive
+        base_archive: Path to base archive for incremental backups
+        volume_size: Maximum size per volume in bytes (None=single file, else splits)
+        comment: User comment to store in archive metadata
+        creator: Creator name to store in archive metadata
         progress_callback: Optional callback(current, total) for progress
     
     Raises:
@@ -155,21 +233,52 @@ def create_archive(
     if source_path.is_dir():
         _check_recursion(source_path, archive_path)
     
+    # Get base archive modification time for incremental backups
+    base_mtime = None
+    if incremental and base_archive:
+        base_archive_path = Path(base_archive)
+        if not base_archive_path.exists():
+            raise FileNotFoundError(f"Base archive not found: {base_archive}")
+        base_mtime = datetime.fromtimestamp(base_archive_path.stat().st_mtime)
+        logger.info(f"Incremental backup mode: base archive from {base_mtime}")
+        # Override modified_after with base archive time
+        if modified_after is None or base_mtime > modified_after:
+            modified_after = base_mtime
+    
     # Gather files to archive
     files_to_archive = []
+    excluded_count = 0
     
     if source_path.is_file():
-        files_to_archive.append((source_path, source_path.name))
+        # Check if single file should be excluded
+        if not _should_exclude_file(source_path, exclude_patterns, max_file_size, min_file_size, modified_after):
+            files_to_archive.append((source_path, source_path.name))
+        else:
+            excluded_count += 1
     else:
         # Walk directory
         for root, dirs, files in os.walk(source_path):
             root_path = Path(root)
+            
+            # Filter directories for exclusion patterns (optimization)
+            if exclude_patterns:
+                dirs[:] = [d for d in dirs if not any(
+                    fnmatch.fnmatch(d, pattern.rstrip('/\\')) or fnmatch.fnmatch(f"{d}/", pattern)
+                    for pattern in exclude_patterns
+                )]
+            
             for file in files:
                 file_path = root_path / file
                 
                 # Skip symlinks
                 if file_path.is_symlink():
                     logger.warning(f"Skipping symlink: {file_path}")
+                    excluded_count += 1
+                    continue
+                
+                # Apply filtering
+                if _should_exclude_file(file_path, exclude_patterns, max_file_size, min_file_size, modified_after):
+                    excluded_count += 1
                     continue
                 
                 # Calculate relative path
@@ -177,12 +286,21 @@ def create_archive(
                 files_to_archive.append((file_path, str(rel_path)))
     
     if not files_to_archive:
-        raise ValueError(f"No files found to archive in {source_path}")
+        msg = f"No files found to archive in {source_path}"
+        if excluded_count > 0:
+            msg += f" (excluded {excluded_count} files)"
+        raise ValueError(msg)
     
     logger.info(f"Creating archive with {len(files_to_archive)} files using {algo}")
+    if excluded_count > 0:
+        logger.info(f"Excluded {excluded_count} files based on filtering criteria")
+    if incremental:
+        logger.info(f"Incremental backup: archiving only files changed after {modified_after}")
     logger.info(f"Mode: {'per-file' if per_file else 'single-stream'} compression")
     if password:
         logger.info("Encryption enabled")
+    if volume_size:
+        logger.info(f"Multi-volume mode: {volume_size / (1024*1024):.1f} MB per volume")
     
     # Try to import tqdm for progress
     tqdm = None
@@ -198,12 +316,24 @@ def create_archive(
     # Create archive
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     
+    # Prepare metadata
+    creation_date = datetime.now()
+    comment_bytes = (comment or "").encode('utf-8')[:1024]  # Max 1KB comment
+    creator_bytes = (creator or "").encode('utf-8')[:256]  # Max 256 bytes creator
+    
     with open(archive_path, 'wb') as f:
         # Write header
         f.write(MAGIC_HEADER_ARCHIVE)
         f.write(struct.pack('B', ARCHIVE_VERSION))
         f.write(struct.pack('B', 1 if per_file else 0))  # per_file flag
         f.write(struct.pack('B', 1 if password else 0))  # encrypted flag
+        
+        # Write metadata (v1.2.0)
+        f.write(struct.pack('>Q', int(creation_date.timestamp())))  # 8 bytes timestamp
+        f.write(struct.pack('>H', len(comment_bytes)))  # 2 bytes comment length
+        f.write(comment_bytes)  # Variable length comment
+        f.write(struct.pack('>H', len(creator_bytes)))  # 2 bytes creator length
+        f.write(creator_bytes)  # Variable length creator
         
         # Reserve space for entry table offset (will update later)
         entry_table_offset_pos = f.tell()
@@ -468,6 +598,26 @@ def extract_archive(
         per_file = struct.unpack('B', f.read(1))[0] == 1
         encrypted = struct.unpack('B', f.read(1))[0] == 1
         
+        # Read metadata (v2+ only)
+        metadata = {}
+        if version >= 2:
+            try:
+                creation_timestamp = struct.unpack('>Q', f.read(8))[0]
+                metadata['creation_date'] = datetime.fromtimestamp(creation_timestamp)
+                
+                comment_len = struct.unpack('>H', f.read(2))[0]
+                if comment_len > 0:
+                    metadata['comment'] = f.read(comment_len).decode('utf-8')
+                
+                creator_len = struct.unpack('>H', f.read(2))[0]
+                if creator_len > 0:
+                    metadata['creator'] = f.read(creator_len).decode('utf-8')
+                
+                if metadata:
+                    logger.info(f"Archive metadata: {metadata}")
+            except Exception as e:
+                logger.warning(f"Could not read metadata: {e}")
+        
         if encrypted and not password:
             raise ValueError("Archive is encrypted but no password provided")
         
@@ -624,7 +774,7 @@ def list_contents(archive_path: str | Path) -> List[Dict]:
         archive_path: Path to archive file
     
     Returns:
-        List of dicts with keys: name, size, compressed_size, mtime, mode
+        List of dicts with keys: name, size, compressed_size, mtime, mode, metadata (if v2+)
     
     Raises:
         ValueError: If archive is corrupted
@@ -649,6 +799,24 @@ def list_contents(archive_path: str | Path) -> List[Dict]:
         
         per_file = struct.unpack('B', f.read(1))[0] == 1
         encrypted = struct.unpack('B', f.read(1))[0] == 1
+        
+        # Read metadata (v2+ only)
+        metadata = {}
+        if version >= 2:
+            try:
+                creation_timestamp = struct.unpack('>Q', f.read(8))[0]
+                metadata['creation_date'] = datetime.fromtimestamp(creation_timestamp)
+                
+                comment_len = struct.unpack('>H', f.read(2))[0]
+                if comment_len > 0:
+                    metadata['comment'] = f.read(comment_len).decode('utf-8')
+                
+                creator_len = struct.unpack('>H', f.read(2))[0]
+                if creator_len > 0:
+                    metadata['creator'] = f.read(creator_len).decode('utf-8')
+            except Exception as e:
+                logger.warning(f"Could not read metadata: {e}")
+        
         entry_table_offset = struct.unpack('>Q', f.read(8))[0]
         
         # Read entry table
@@ -682,5 +850,9 @@ def list_contents(archive_path: str | Path) -> List[Dict]:
                 entry_dict['algo'] = algo_name
             
             entries.append(entry_dict)
+    
+    # Add archive metadata as a special entry at the beginning
+    if metadata:
+        entries.insert(0, {'metadata': metadata})
     
     return entries

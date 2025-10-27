@@ -205,3 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# TechCompressor - Internal Planning Documents
+# These files are for development planning only and should not be in the repository
+ROADMAP_*.md
+RELEASE_CHECKLIST_*.md
+RELEASE_SUMMARY_*.md

@@ -97,17 +97,20 @@ def test_list_contents():
         # List contents
         contents = list_contents(archive_path)
         
+        # Filter out metadata entry if present
+        file_entries = [e for e in contents if 'metadata' not in e]
+        
         # Verify
-        assert len(contents) == 3
+        assert len(file_entries) == 3
         
         # Check names are present
-        names = [entry['name'] for entry in contents]
+        names = [entry['name'] for entry in file_entries]
         assert "file1.txt" in names
         assert "file2.txt" in names
         assert str(Path("sub") / "file3.txt") in names or "sub/file3.txt" in names
         
         # Check sizes
-        for entry in contents:
+        for entry in file_entries:
             assert 'size' in entry
             assert 'compressed_size' in entry
             assert 'mtime' in entry
@@ -515,7 +518,351 @@ def test_stored_mode_backward_compatibility():
         
         # List contents should work
         contents = list_contents(archive_path)
-        assert len(contents) == 1
-        assert contents[0]['name'] == 'file.bin'
-        assert contents[0]['size'] == len(data)
+        
+        # Filter out metadata if present
+        file_entries = [e for e in contents if 'metadata' not in e]
+        assert len(file_entries) == 1
+        assert file_entries[0]['name'] == 'file.bin'
+        assert file_entries[0]['size'] == len(data)
+
+
+# =============================================================================
+# v1.2.0 Feature Tests
+# =============================================================================
+
+def test_file_filtering_exclude_patterns():
+    """Test advanced file filtering with exclude patterns (v1.2.0)"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_dir = Path(tmpdir) / "source"
+        archive_path = Path(tmpdir) / "filtered.tc"
+        extract_dir = Path(tmpdir) / "extracted"
+        
+        source_dir.mkdir()
+        
+        # Create test files matching different patterns
+        (source_dir / "keep.txt").write_text("Include this")
+        (source_dir / "temp.tmp").write_text("Exclude this")
+        (source_dir / "data.log").write_text("Exclude logs")
+        (source_dir / "important.py").write_text("Include Python")
+        
+        # Create .git directory (should be excluded)
+        git_dir = source_dir / ".git"
+        git_dir.mkdir()
+        (git_dir / "config").write_text("Git config")
+        
+        # Create __pycache__ directory (should be excluded)
+        cache_dir = source_dir / "__pycache__"
+        cache_dir.mkdir()
+        (cache_dir / "module.pyc").write_bytes(b"\x00" * 100)
+        
+        # Create archive with exclusions
+        create_archive(
+            source_dir, 
+            archive_path, 
+            exclude_patterns=["*.tmp", "*.log", ".git/*", "__pycache__/*"]
+        )
+        
+        # Extract and verify only non-excluded files present
+        extract_archive(archive_path, extract_dir)
+        
+        assert (extract_dir / "keep.txt").exists()
+        assert (extract_dir / "important.py").exists()
+        assert not (extract_dir / "temp.tmp").exists()
+        assert not (extract_dir / "data.log").exists()
+        assert not (extract_dir / ".git").exists()
+        assert not (extract_dir / "__pycache__").exists()
+
+
+def test_file_filtering_size_limits():
+    """Test file filtering with min/max size constraints (v1.2.0)"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_dir = Path(tmpdir) / "source"
+        archive_path = Path(tmpdir) / "sized.tc"
+        extract_dir = Path(tmpdir) / "extracted"
+        
+        source_dir.mkdir()
+        
+        # Create files of different sizes
+        (source_dir / "tiny.txt").write_bytes(b"x" * 50)        # 50 bytes
+        (source_dir / "small.txt").write_bytes(b"x" * 500)      # 500 bytes
+        (source_dir / "medium.txt").write_bytes(b"x" * 5000)    # 5KB
+        (source_dir / "large.txt").write_bytes(b"x" * 50000)    # 50KB
+        
+        # Archive only files between 200 bytes and 10KB
+        create_archive(
+            source_dir,
+            archive_path,
+            min_file_size=200,
+            max_file_size=10000
+        )
+        
+        # Extract and verify size filtering
+        extract_archive(archive_path, extract_dir)
+        
+        assert not (extract_dir / "tiny.txt").exists()     # Too small
+        assert (extract_dir / "small.txt").exists()        # 500 bytes - OK
+        assert (extract_dir / "medium.txt").exists()       # 5KB - OK
+        assert not (extract_dir / "large.txt").exists()    # Too large
+
+
+def test_file_filtering_date_range():
+    """Test file filtering by modification date (v1.2.0)"""
+    from datetime import datetime, timedelta
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_dir = Path(tmpdir) / "source"
+        archive_path = Path(tmpdir) / "dated.tc"
+        extract_dir = Path(tmpdir) / "extracted"
+        
+        source_dir.mkdir()
+        
+        # Create files
+        old_file = source_dir / "old.txt"
+        new_file = source_dir / "new.txt"
+        old_file.write_text("Old content")
+        new_file.write_text("New content")
+        
+        # Manually set modification times
+        now = datetime.now().timestamp()
+        old_time = (datetime.now() - timedelta(days=10)).timestamp()
+        
+        os.utime(old_file, (now, old_time))
+        os.utime(new_file, (now, now))
+        
+        # Archive only files modified in last 5 days
+        cutoff_date = datetime.now() - timedelta(days=5)
+        create_archive(
+            source_dir,
+            archive_path,
+            modified_after=cutoff_date
+        )
+        
+        # Extract and verify date filtering
+        extract_archive(archive_path, extract_dir)
+        
+        assert not (extract_dir / "old.txt").exists()  # Too old
+        assert (extract_dir / "new.txt").exists()      # Recent
+
+
+def test_incremental_backup():
+    """Test incremental backup mode (v1.2.0)"""
+    from datetime import datetime, timedelta
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_dir = Path(tmpdir) / "source"
+        base_archive = Path(tmpdir) / "base.tc"
+        incremental_archive = Path(tmpdir) / "incremental.tc"
+        extract_dir = Path(tmpdir) / "extracted"
+        
+        source_dir.mkdir()
+        
+        # Create initial files
+        (source_dir / "file1.txt").write_text("Original 1")
+        (source_dir / "file2.txt").write_text("Original 2")
+        
+        # Create base archive
+        create_archive(source_dir, base_archive)
+        
+        # Wait and modify one file, add another
+        import time
+        time.sleep(0.1)  # Ensure timestamp difference
+        
+        (source_dir / "file2.txt").write_text("Modified 2")
+        (source_dir / "file3.txt").write_text("New file 3")
+        
+        # Create incremental archive
+        create_archive(
+            source_dir,
+            incremental_archive,
+            incremental=True,
+            base_archive=base_archive
+        )
+        
+        # Extract incremental archive
+        extract_archive(incremental_archive, extract_dir)
+        
+        # Should contain only changed/new files
+        assert not (extract_dir / "file1.txt").exists()  # Unchanged
+        assert (extract_dir / "file2.txt").exists()       # Modified
+        assert (extract_dir / "file3.txt").exists()       # New
+        
+        # Verify content
+        assert (extract_dir / "file2.txt").read_text() == "Modified 2"
+        assert (extract_dir / "file3.txt").read_text() == "New file 3"
+
+
+def test_archive_metadata():
+    """Test archive metadata (comment, creator, creation_date) (v1.2.0)"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_dir = Path(tmpdir) / "source"
+        archive_path = Path(tmpdir) / "meta.tc"
+        
+        source_dir.mkdir()
+        (source_dir / "test.txt").write_text("Test data")
+        
+        # Create archive with metadata
+        test_comment = "Backup created by automated script"
+        test_creator = "Devaansh Pathak"
+        
+        create_archive(
+            source_dir,
+            archive_path,
+            comment=test_comment,
+            creator=test_creator
+        )
+        
+        # List contents and verify metadata
+        contents = list_contents(archive_path)
+        
+        # First entry should be metadata
+        assert 'metadata' in contents[0]
+        metadata = contents[0]['metadata']
+        
+        assert metadata['comment'] == test_comment
+        assert metadata['creator'] == test_creator
+        assert 'creation_date' in metadata
+        
+        # Verify creation_date is recent (within last minute)
+        from datetime import datetime, timedelta
+        creation_date = metadata['creation_date']
+        assert isinstance(creation_date, datetime)
+        assert datetime.now() - creation_date < timedelta(minutes=1)
+        
+        # Second entry should be the actual file
+        assert contents[1]['name'] == 'test.txt'
+
+
+def test_enhanced_entropy_detection():
+    """Test enhanced entropy detection for compressed files (v1.2.0)"""
+    from techcompressor.core import is_likely_compressed
+    
+    # Test file extension detection
+    assert is_likely_compressed(b"dummy data", "image.jpg") == True
+    assert is_likely_compressed(b"dummy data", "archive.zip") == True
+    assert is_likely_compressed(b"dummy data", "video.mp4") == True
+    assert is_likely_compressed(b"dummy data", "document.pdf") == True
+    assert is_likely_compressed(b"dummy data", "photo.PNG") == True  # Case insensitive
+    
+    # Text files should not be detected as compressed
+    assert is_likely_compressed(b"Hello World", "text.txt") == False
+    assert is_likely_compressed(b"Python code", "script.py") == False
+    
+    # Test entropy-based detection (high entropy data without extension)
+    # Need >1KB and high unique byte ratio (>0.9)
+    high_entropy = os.urandom(2000)  # Random bytes (high entropy)
+    assert is_likely_compressed(high_entropy, "unknown") == True
+    
+    # Low entropy data (repetitive)
+    low_entropy = b"A" * 2000
+    assert is_likely_compressed(low_entropy, "unknown") == False
+
+
+def test_entropy_detection_in_auto_mode():
+    """Test AUTO mode skips compression on already-compressed files (v1.2.0)"""
+    from techcompressor import compress, decompress
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_dir = Path(tmpdir) / "source"
+        archive_path = Path(tmpdir) / "auto.tc"
+        extract_dir = Path(tmpdir) / "extracted"
+        
+        source_dir.mkdir()
+        
+        # Create a "compressed" file (simulate with high entropy)
+        jpg_data = os.urandom(5000)  # Simulated JPEG
+        (source_dir / "image.jpg").write_bytes(jpg_data)
+        
+        # Create a text file (should compress well)
+        text_data = "Hello World " * 100
+        (source_dir / "document.txt").write_text(text_data)
+        
+        # Create archive with AUTO mode
+        create_archive(source_dir, archive_path, algo="AUTO")
+        
+        # Extract and verify
+        extract_archive(archive_path, extract_dir)
+        
+        assert (extract_dir / "image.jpg").read_bytes() == jpg_data
+        assert (extract_dir / "document.txt").read_text() == text_data
+        
+        # Archive should be smaller than original due to text compression
+        # (even though JPG doesn't compress)
+        original_size = len(jpg_data) + len(text_data.encode())
+        archive_size = archive_path.stat().st_size
+        
+        # Archive has overhead but text should compress significantly
+        # We can't guarantee exact size, just verify extraction works
+        assert archive_size > 0
+
+
+def test_metadata_backward_compatibility():
+    """Test that v1 archives without metadata still work (v1.2.0)"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_dir = Path(tmpdir) / "source"
+        archive_path = Path(tmpdir) / "no_meta.tc"
+        extract_dir = Path(tmpdir) / "extracted"
+        
+        source_dir.mkdir()
+        (source_dir / "test.txt").write_text("Test data")
+        
+        # Create archive without metadata
+        create_archive(source_dir, archive_path)
+        
+        # List contents - should work even without metadata
+        contents = list_contents(archive_path)
+        
+        # If metadata exists, it's in first entry; otherwise first is file
+        if 'metadata' in contents[0]:
+            # v2 archive with metadata
+            assert len(contents) == 2
+            assert contents[1]['name'] == 'test.txt'
+        else:
+            # v1 archive or v2 without metadata
+            assert contents[0]['name'] == 'test.txt'
+        
+        # Extract should work regardless
+        extract_archive(archive_path, extract_dir)
+        assert (extract_dir / "test.txt").read_text() == "Test data"
+
+
+def test_combined_filters():
+    """Test combining multiple filter types (v1.2.0)"""
+    from datetime import datetime, timedelta
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source_dir = Path(tmpdir) / "source"
+        archive_path = Path(tmpdir) / "combined.tc"
+        extract_dir = Path(tmpdir) / "extracted"
+        
+        source_dir.mkdir()
+        
+        # Create diverse file set
+        (source_dir / "keep.txt").write_bytes(b"x" * 1000)      # Keep
+        (source_dir / "exclude.tmp").write_bytes(b"x" * 1000)   # Exclude by pattern
+        (source_dir / "small.txt").write_bytes(b"x" * 10)       # Exclude by size
+        (source_dir / "large.txt").write_bytes(b"x" * 100000)   # Exclude by size
+        (source_dir / "old.txt").write_bytes(b"x" * 1000)       # Exclude by date
+        
+        # Set old file timestamp
+        old_time = (datetime.now() - timedelta(days=30)).timestamp()
+        os.utime(source_dir / "old.txt", (old_time, old_time))
+        
+        # Apply all filters
+        create_archive(
+            source_dir,
+            archive_path,
+            exclude_patterns=["*.tmp"],
+            min_file_size=100,
+            max_file_size=50000,
+            modified_after=datetime.now() - timedelta(days=7)
+        )
+        
+        # Extract and verify only keep.txt passes all filters
+        extract_archive(archive_path, extract_dir)
+        
+        assert (extract_dir / "keep.txt").exists()
+        assert not (extract_dir / "exclude.tmp").exists()
+        assert not (extract_dir / "small.txt").exists()
+        assert not (extract_dir / "large.txt").exists()
+        assert not (extract_dir / "old.txt").exists()
 

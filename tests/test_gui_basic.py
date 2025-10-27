@@ -32,8 +32,8 @@ def test_gui_loads():
         assert app.progress_queue is not None
         assert app.cancel_flag is not None
         
-        # Verify tabs were created
-        assert app.notebook.index('end') == 4  # 4 tabs: Compress, Extract, Settings, Logs
+        # Verify tabs were created (v1.2.0: 5 tabs including About)
+        assert app.notebook.index('end') == 5  # 5 tabs: Compress, Extract, Settings, Logs, About
         
         # Verify compress tab widgets
         assert app.compress_input_var is not None

@@ -1,5 +1,6 @@
 """Core compression and decompression API for TechCompressor."""
 import struct
+from pathlib import Path
 from techcompressor.utils import get_logger
 
 logger = get_logger(__name__)
@@ -20,6 +21,54 @@ MAGIC_HEADER_HUFFMAN = b"TCH1"
 MAGIC_HEADER_DEFLATE = b"TCD1"
 DEFAULT_WINDOW_SIZE = 32768  # 32 KB sliding window
 DEFAULT_LOOKAHEAD = 258  # Maximum match length
+
+# File extensions that are already compressed (should use STORED mode)
+COMPRESSED_EXTENSIONS = {
+    # Images
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.jxl',
+    # Videos
+    '.mp4', '.avi', '.mkv', '.mov', '.webm', '.flv', '.wmv', '.m4v',
+    # Audio
+    '.mp3', '.aac', '.ogg', '.opus', '.m4a', '.wma', '.flac',
+    # Archives
+    '.zip', '.rar', '.7z', '.gz', '.bz2', '.xz', '.tar.gz', '.tgz', '.tar.bz2',
+    # Documents (compressed)
+    '.pdf', '.docx', '.xlsx', '.pptx', '.odt', '.ods', '.odp',
+    # Executables (often compressed)
+    '.exe', '.dll', '.apk', '.ipa',
+}
+
+
+def is_likely_compressed(data: bytes, filename: str | None = None) -> bool:
+    """
+    Check if data is likely already compressed based on entropy and file extension.
+    
+    Args:
+        data: Data to check
+        filename: Optional filename to check extension
+    
+    Returns:
+        True if data appears already compressed, False otherwise
+    """
+    # Check file extension first (fast)
+    if filename:
+        ext = Path(filename).suffix.lower()
+        if ext in COMPRESSED_EXTENSIONS:
+            logger.debug(f"File {filename} has compressed extension {ext}")
+            return True
+    
+    # Check entropy if we have enough data
+    if len(data) < 1024:
+        return False
+    
+    # Sample first 4KB to check for patterns
+    sample_size = min(4096, len(data))
+    sample = data[:sample_size]
+    unique_bytes = len(set(sample))
+    entropy_ratio = unique_bytes / 256.0  # 1.0 = perfectly random
+    
+    # If entropy > 0.9, data is likely already compressed/encrypted
+    return entropy_ratio > 0.9
 
 
 def _lzw_compress(data: bytes, persist_dict: bool = False) -> bytes:
@@ -839,17 +888,23 @@ def compress(data: bytes, algo: str = "LZW", password: str | None = None, persis
         # For files larger than 5MB, skip DEFLATE (too slow) and only try LZW/Huffman
         skip_deflate = len(data) > 5 * 1024 * 1024
         
-        # Quick entropy check: if data looks random/compressed, use fast LZW only
-        # Sample first 4KB to check for patterns
-        sample_size = min(4096, len(data))
-        sample = data[:sample_size]
-        unique_bytes = len(set(sample))
-        entropy_ratio = unique_bytes / 256.0  # 1.0 = perfectly random
+        # Enhanced entropy check using helper function
+        if is_likely_compressed(data):
+            logger.info("Data appears already compressed - using fast LZW only")
+            skip_deflate = True
+            skip_huffman = True
+        else:
+            skip_huffman = False
         
-        # If entropy > 0.9, data is likely already compressed/encrypted
-        if entropy_ratio > 0.9 and len(data) > 10000:
-            logger.info(f"High entropy detected ({entropy_ratio:.2f}) - using fast LZW only")
-            lzw_payload = MAGIC_HEADER_LZW + struct.pack(">H", MAX_DICT_SIZE) + _lzw_compress(data)
+        # For very large files (>50MB), skip Huffman too (memory intensive)
+        if len(data) > 50 * 1024 * 1024:
+            logger.info(f"Large file ({len(data) / (1024*1024):.1f} MB) - using LZW only")
+            skip_deflate = True
+            skip_huffman = True
+        
+        # If we're skipping all advanced algorithms, just use LZW
+        if skip_deflate and skip_huffman:
+            lzw_payload = MAGIC_HEADER_LZW + struct.pack(">H", MAX_DICT_SIZE) + _lzw_compress(data, persist_dict=persist_dict)
             result = lzw_payload
             best_algo = "LZW"
         else:
@@ -864,7 +919,7 @@ def compress(data: bytes, algo: str = "LZW", password: str | None = None, persis
                 logger.exception("LZW pass failed during AUTO mode")
 
             # Huffman candidate (try for small-medium files)
-            if len(data) < 50 * 1024 * 1024:  # Skip for files > 50MB
+            if not skip_huffman:
                 try:
                     huff_payload = MAGIC_HEADER_HUFFMAN + _huffman_compress(data)
                     candidates.append(("HUFFMAN", huff_payload))

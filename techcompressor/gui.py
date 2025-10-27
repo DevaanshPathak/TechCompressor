@@ -110,7 +110,9 @@ class TechCompressorApp:
         )
         title_label.pack(side='left')
         
-        version_label = ttk.Label(header, text="v1.0.0")
+        # Get version dynamically
+        import techcompressor
+        version_label = ttk.Label(header, text=f"v{techcompressor.__version__}")
         version_label.pack(side='left', padx=10)
         
         # Main notebook (tabs)
@@ -122,6 +124,7 @@ class TechCompressorApp:
         self._create_extract_tab()
         self._create_settings_tab()
         self._create_logs_tab()
+        self._create_about_tab()
     
     def _create_compress_tab(self):
         """Create the Compress tab UI."""
@@ -374,6 +377,97 @@ class TechCompressorApp:
         
         self.log_text = scrolledtext.ScrolledText(log_frame, state='disabled', wrap='word')
         self.log_text.pack(fill='both', expand=True)
+    
+    def _create_about_tab(self):
+        """Create the About tab UI with developer credits."""
+        tab = ttk.Frame(self.notebook, padding="10")
+        self.notebook.add(tab, text="About")
+        
+        # Center frame for content
+        center_frame = ttk.Frame(tab)
+        center_frame.place(relx=0.5, rely=0.5, anchor='center')
+        
+        # App name and version
+        import techcompressor
+        title_label = ttk.Label(
+            center_frame,
+            text="TechCompressor",
+            font=('Arial', 24, 'bold')
+        )
+        title_label.pack(pady=10)
+        
+        version_label = ttk.Label(
+            center_frame,
+            text=f"Version {techcompressor.__version__}",
+            font=('Arial', 12)
+        )
+        version_label.pack(pady=5)
+        
+        # Description
+        desc_label = ttk.Label(
+            center_frame,
+            text="Multi-algorithm compression framework with encryption and archiving",
+            font=('Arial', 10),
+            wraplength=500,
+            justify='center'
+        )
+        desc_label.pack(pady=10)
+        
+        # Developer credits
+        ttk.Separator(center_frame, orient='horizontal').pack(fill='x', pady=15)
+        
+        dev_label = ttk.Label(
+            center_frame,
+            text="Developed by",
+            font=('Arial', 10)
+        )
+        dev_label.pack(pady=5)
+        
+        name_label = ttk.Label(
+            center_frame,
+            text="Devaansh Pathak",
+            font=('Arial', 14, 'bold')
+        )
+        name_label.pack(pady=5)
+        
+        # GitHub link (as clickable text)
+        github_link = ttk.Label(
+            center_frame,
+            text="GitHub: DevaanshPathak",
+            font=('Arial', 10, 'underline'),
+            foreground='blue',
+            cursor='hand2'
+        )
+        github_link.pack(pady=5)
+        github_link.bind('<Button-1>', lambda e: self._open_github())
+        
+        # License
+        ttk.Separator(center_frame, orient='horizontal').pack(fill='x', pady=15)
+        
+        license_label = ttk.Label(
+            center_frame,
+            text="MIT License - Free for personal and commercial use",
+            font=('Arial', 9)
+        )
+        license_label.pack(pady=5)
+        
+        # Features summary
+        features_label = ttk.Label(
+            center_frame,
+            text="Features: LZW, Huffman, DEFLATE | AES-256-GCM Encryption\n"
+                 "Solid Compression | Recovery Records | Multi-Volume Archives\n"
+                 "Incremental Backups | Advanced File Filtering",
+            font=('Arial', 8),
+            wraplength=500,
+            justify='center'
+        )
+        features_label.pack(pady=10)
+    
+    def _open_github(self):
+        """Open GitHub profile in browser."""
+        import webbrowser
+        webbrowser.open('https://github.com/DevaanshPathak')
+        logger.info("Opening GitHub profile in browser")
     
     def _setup_logging(self):
         """Setup logging handler to route logs to GUI."""

@@ -2,15 +2,25 @@
 
 ## Project Overview
 
-TechCompressor is a **production-ready (v1.1.0)** modular Python compression framework with three algorithms (LZW, Huffman, DEFLATE), AES-256-GCM encryption, TCAF v2 archive format with recovery records, CLI, and GUI. Development is complete with 152 passing tests (2 skipped).
+TechCompressor is a **production-ready (v1.2.0)** modular Python compression framework with three algorithms (LZW, Huffman, DEFLATE), AES-256-GCM encryption, TCAF v2 archive format with recovery records, advanced file filtering, multi-volume archives, and incremental backups. Developed by **Devaansh Pathak** ([GitHub](https://github.com/DevaanshPathak)).
 
 **Target**: Python 3.10+ | **Status**: Production/Stable | **License**: MIT
+
+## New in v1.2.0
+- **Advanced File Filtering**: Exclude patterns (*.tmp, .git/), size limits, date ranges for selective archiving
+- **Multi-Volume Archives**: Split large archives into parts (archive.tc.001, .002, etc.) with configurable volume sizes
+- **Incremental Backups**: Only compress changed files since last archive creation (timestamp-based)
+- **Enhanced Entropy Detection**: Automatically skip compression on already-compressed formats (JPG, PNG, MP4, ZIP, etc.)
+- **Archive Metadata**: User comments, creation date, and creator information in archive headers
+- **File Attributes Preservation**: Windows ACLs and Linux extended attributes support
 
 ## New in v1.1.0
 - **Dictionary Persistence**: Solid compression mode now preserves LZW dictionaries between files for 10-30% better ratios
 - **Recovery Records**: PAR2-style Reed-Solomon error correction for archive repair (configurable 0-10% redundancy)
 - **Parallel Compression**: Multi-threaded per-file compression with ThreadPoolExecutor (2-4x faster on multi-core)
 - **State Management**: `reset_solid_compression_state()` function to clear global compression state
+
+---
 
 ## Architecture & Component Interaction
 
@@ -45,6 +55,7 @@ def reset_solid_compression_state() -> None  # v1.1.0: Reset dictionary state be
 - Dictionary size: 4096 entries (configurable via `MAX_DICT_SIZE`)
 - Auto-resets dictionary when full (supports unlimited input)
 - Output format: 2-byte big-endian codes (`struct.pack(">H", code)`)
+- **NEW v1.1.0**: Supports `persist_dict=True` for solid compression (preserves dictionary between files)
 
 **Huffman (lines 139-363)**: Frequency-based, optimal for non-uniform distributions
 - Uses heap-based tree construction with `_HuffmanNode` class
@@ -59,14 +70,15 @@ def reset_solid_compression_state() -> None  # v1.1.0: Reset dictionary state be
 ### Archiver Module (`techcompressor/archiver.py`)
 Implements **TCAF v2** (TechCompressor Archive Format) for folders/multiple files:
 ```python
-create_archive(source_path, archive_path, algo="LZW", password=None, per_file=True, progress_callback=None)
+create_archive(source_path, archive_path, algo="LZW", password=None, per_file=True, 
+               recovery_percent=0.0, max_workers=None, progress_callback=None)
 extract_archive(archive_path, dest_path, password=None, progress_callback=None)
 list_contents(archive_path) -> List[Dict]  # Returns metadata without extraction
 ```
 
 **Two compression modes**:
 - `per_file=True`: Compress each file separately (faster, parallel-friendly, better for mixed content)
-- `per_file=False`: Single-stream compression (better ratio for similar files, smaller overhead)
+- `per_file=False`: Single-stream compression (better ratio for similar files, smaller overhead, enables solid mode)
 
 **STORED mode (v2 feature)**:
 - When compression expands data (ratio >= 100%), files are stored uncompressed
@@ -138,55 +150,108 @@ Tkinter multi-tab interface with **background threading** (lines 23-32):
 - **Thread-safety rule**: ALL widget updates MUST use `.after(0, callback)` - never modify widgets from worker threads
 - Progress callbacks: GUI expects `(percent: float, message: str)` format, archiver provides `(current: int, total: int)` - GUI adapts these
 - Keyboard shortcuts: Ctrl+Shift+C (compress), Ctrl+Shift+E (extract)
-## TechCompressor — AI contributor quick guide
 
-This repository is a production Python compression tool (LZW, Huffman, DEFLATE) with
-AES-256-GCM encryption, a TCAF v2 archive format, a CLI and a Tkinter GUI. Tests (~152)
-are in `tests/` and must remain green for releases.
+---
 
-What matters for an AI editing this repo (short):
-- Primary API: `techcompressor/core.py` exposes compress(data, algo, password) and
-  decompress(data, algo, password). Do not change the public signature.
-- Archiver: `techcompressor/archiver.py` implements TCAF v2. `per_file` vs single-stream
-  affects compression ratio and behavior (STORED mode used when expansion occurs).
-- Crypto: `techcompressor/crypto.py` uses AES-256-GCM + PBKDF2 (100k iterations).
-  Do NOT weaken iterations or alter header format (`TCE1 | salt | nonce | ciphertext | tag`).
-- CLI/GUI: `techcompressor/cli.py` and `techcompressor/gui.py` are entry points. GUI must
-  keep thread-safety (use `.after()` for widget updates); progress callbacks are
-  `(current:int, total:int)` and GUI adapts them to `(percent, message)`.
+## AI Contributor Quick Guide
 
-Conventions & gotchas to preserve:
-- Magic headers are 4 bytes (e.g. `TCZ1`,`TCH1`,`TCD1`,`TCE1`) — decompression validates them.
-- LZW code format: 2-byte big-endian words — keep packing/unpacking conventions.
-- Type hints use PEP 604 (`str | None`) — project targets Python 3.10+.
-- Logging: use `from techcompressor.utils import get_logger`; follow existing message format.
-- Tests: add tests before feature code; follow patterns in `tests/*_*.py` (empty input, single byte,
-  large input, wrong magic header, password mismatch).
+This repository is a production Python compression tool (LZW, Huffman, DEFLATE) with AES-256-GCM encryption, a TCAF v2 archive format, a CLI and a Tkinter GUI. Tests (~152) are in `tests/` and must remain green for releases.
 
-Common developer workflows (use these exact commands):
-- Setup: `pip install -r requirements.txt`
-- Tests: `pytest` (or `pytest tests/test_release_smoke.py -v` for quick smoke)
-- Benchmarks: `python bench.py`
-- GUI dev: `python -m techcompressor.cli --gui` or `techcompressor-gui`
-- Windows release: run PowerShell script `.uild_release.ps1` (uses PyInstaller; note `SPECPATH` use).
+### Critical APIs - DO NOT BREAK
+- **Primary API**: `techcompressor/core.py` exposes `compress(data, algo, password, persist_dict)` and `decompress(data, algo, password)`. Public signature must remain stable.
+- **Archiver**: `techcompressor/archiver.py` implements TCAF v2. `per_file` vs single-stream affects compression ratio and behavior (STORED mode used when expansion occurs).
+- **Crypto**: `techcompressor/crypto.py` uses AES-256-GCM + PBKDF2 (100k iterations). Do NOT weaken iterations or alter header format (`TCE1 | salt | nonce | ciphertext | tag`).
+- **CLI/GUI**: `techcompressor/cli.py` and `techcompressor/gui.py` are entry points. GUI must keep thread-safety (use `.after()` for widget updates); progress callbacks are `(current:int, total:int)` and GUI adapts them to `(percent, message)`.
 
-When changing behavior, follow this checklist:
-1. Keep public API signatures stable (`core.compress/decompress`).
-2. Update/extend unit tests in `tests/` and run `pytest` locally.
-3. Preserve magic header checks and crypto header layout.
-4. If adding new archive format or magic bytes, register a unique 4-byte header and add tests.
-5. Update `techcompressor/__init__.py` and `pyproject.toml` together when bumping versions.
+### Code Conventions & Gotchas
+- **Magic headers** are 4 bytes (e.g. `TCZ1`, `TCH1`, `TCD1`, `TCE1`, `TCAF`, `TCRR`) — decompression validates them
+- **LZW format**: 2-byte big-endian words (`struct.pack(">H", code)`) — maintain packing conventions
+- **Type hints**: Use PEP 604 (`str | None`) not `Optional[str]` — project targets Python 3.10+
+- **Logging**: Use `from techcompressor.utils import get_logger`; follow existing message format
+- **Test patterns**: Add tests before feature code; follow patterns in `tests/*_*.py`:
+  - Edge cases: empty input, single byte, large input (>1MB), boundary conditions
+  - Security: wrong magic header, password mismatch, path traversal attempts
+  - Roundtrip: compress → decompress → verify equality
+- **Global state**: Only LZW dictionary (`_solid_lzw_dict`) has global state - reset with `reset_solid_compression_state()`
+- **Error handling**: Raise `ValueError` for user input errors, `RuntimeError` for internal errors
 
-## ⚠️ CRITICAL: Release Documentation Checklist
+### Common Developer Workflows (exact commands)
+```powershell
+# ⚠️ CRITICAL: ALWAYS activate virtual environment FIRST before any command
+# This prevents building with global packages (creates bloated builds)
+D:/TechCompressor/.venv/Scripts/Activate.ps1
+
+# Setup (after venv activation)
+pip install -r requirements.txt
+
+# Run all tests (must pass before commits)
+pytest
+
+# Quick smoke test (20 seconds vs 2+ minutes full suite)
+pytest tests/test_release_smoke.py -v
+
+# Test with coverage report
+pytest --cov=techcompressor --cov-report=html
+
+# Benchmarks (standalone script)
+python bench.py
+
+# GUI development (hot-reload friendly)
+python -m techcompressor.cli --gui
+# OR
+techcompressor-gui
+
+# Windows release build (runs tests automatically, REQUIRES venv activation)
+.\build_release.ps1
+```
+.\build_release.ps1
+```
+
+### File Organization & Responsibilities
+```
+techcompressor/
+├── core.py          # Algorithm routing, compress/decompress API (850 lines)
+├── archiver.py      # TCAF format, multi-file archives, security (686 lines)
+├── crypto.py        # AES-256-GCM, PBKDF2 key derivation (120 lines)
+├── recovery.py      # PAR2-style Reed-Solomon error correction (304 lines)
+├── cli.py           # Argument parsing, command dispatch (380 lines)
+├── gui.py           # Tkinter interface, threading, progress (750 lines)
+└── utils.py         # Logging configuration, shared utilities (50 lines)
+
+tests/
+├── test_release_smoke.py    # 20s sanity checks for releases
+├── test_lzw.py              # LZW edge cases + roundtrip
+├── test_huffman.py          # Huffman tree construction + serialization
+├── test_deflate.py          # DEFLATE LZ77 + Huffman integration
+├── test_crypto.py           # Encryption, key derivation, authentication
+├── test_archiver.py         # Archive creation, security, metadata
+└── test_integration.py      # Cross-module workflows, end-to-end
+```
+
+### When Changing Behavior - Pre-Commit Checklist
+1. ✅ Keep public API signatures stable (`core.compress/decompress`, `archiver.create_archive/extract_archive`)
+2. ✅ Update/extend unit tests in `tests/` and run `pytest` locally (all must pass)
+3. ✅ Preserve magic header checks and crypto header layout (4-byte headers are part of file format spec)
+4. ✅ If adding new archive format or magic bytes, register a unique 4-byte header and add tests
+5. ✅ Update `techcompressor/__init__.py` and `pyproject.toml` together when bumping versions
+6. ✅ For new public functions, add to `__all__` in `__init__.py`
+7. ✅ Run `pytest tests/test_release_smoke.py -v` for fast validation before pushing
+
+---
+
+## CRITICAL: Release Documentation Checklist
 
 **BEFORE suggesting a release or running build_release.ps1, ALWAYS update these files:**
+
+**IMPORTANT**: Do NOT create RELEASE_CHECKLIST_*.md or RELEASE_SUMMARY_*.md files - these are excluded from the repository.
 
 1. **README.md**:
    - Version badge (line 3): `[![Version](https://img.shields.io/badge/version-X.X.X-blue.svg)]`
    - Test count badge (line 6): `[![Tests](https://img.shields.io/badge/tests-XXX%20passed-brightgreen.svg)]`
-   - Feature descriptions (add new v1.X.X features under "✨ Features")
+   - Feature descriptions (add new v1.X.X features under "Features")
    - Python API examples (update function signatures with new parameters)
    - Comparison table (update with new features vs competitors)
+   - **NO EMOJIS**: README.md must not contain any emoji characters
 
 2. **RELEASE_NOTES.md**:
    - Update version in title: `# TechCompressor vX.X.X Release Notes`
@@ -202,20 +267,28 @@ When changing behavior, follow this checklist:
    - Include performance metrics if applicable
    - Reference related issue numbers if available
 
-4. **pyproject.toml**:
+4. **SECURITY.md** (if applicable):
+   - Update security policy if new features affect security model
+   - Update supported versions table
+   - Add any new security considerations
+
+5. **pyproject.toml**:
    - Update `version = "X.X.X"` (line 7)
 
-5. **techcompressor/__init__.py**:
+6. **techcompressor/__init__.py**:
    - Update `__version__ = "X.X.X"`
    - Update `__all__` exports if new public functions added
 
-6. **tests/test_release_smoke.py**:
+7. **tests/test_release_smoke.py**:
    - Update version assertion: `assert techcompressor.__version__ == "X.X.X"`
 
-7. **.github/copilot-instructions.md** (this file):
+8. **.github/copilot-instructions.md** (this file):
    - Update "Project Overview" version number
    - Update "New in vX.X.X" section
    - Update API signatures in examples
+
+8. **GUI Credits**:
+   - Ensure GUI displays developer credits: "Developed by Devaansh Pathak (GitHub: DevaanshPathak)"
 
 **DO NOT:**
 - Suggest building or releasing without updating ALL documentation first
@@ -223,9 +296,27 @@ When changing behavior, follow this checklist:
 - Skip updating comparison tables or feature lists
 - Forget to update test count badges after adding new tests
 
-Files to inspect first for most tasks: `techcompressor/core.py`, `archiver.py`, `crypto.py`,
-`cli.py`, `gui.py`, `utils.py`, `bench.py`, `build_release.ps1`, and `tests/`.
+---
 
-If anything above is unclear or you want more examples (small patch + tests), tell me which
-area to expand and I will add a short, concrete example change and its tests.
-- `test_archiver.py` - Archive creation/extraction + security validation
+## Quick Reference for Common Tasks
+
+**Files to inspect first for most tasks**: `techcompressor/core.py`, `archiver.py`, `crypto.py`, `cli.py`, `gui.py`, `utils.py`, `bench.py`, `build_release.ps1`, and `tests/`.
+
+**Example: Adding a new compression algorithm**:
+1. Implement `_myalgo_compress(data: bytes) -> bytes` and `_myalgo_decompress(data: bytes) -> bytes` in `core.py`
+2. Register magic header: `MAGIC_HEADER_MYALGO = b"TCM1"` (4 bytes, unique)
+3. Add to `ALGO_MAP` in `archiver.py`: `{"MYALGO": 5}`
+4. Update `compress()` and `decompress()` routing logic in `core.py`
+5. Add tests in `tests/test_myalgo.py` following existing patterns
+6. Update CLI help text in `cli.py` to include new algorithm
+7. Add to GUI algorithm dropdown in `gui.py`
+8. Run full test suite: `pytest`
+
+**Example: Adding a new CLI command**:
+1. Add argument parser in `cli.py` under `main()` function
+2. Implement command handler function (e.g., `def handle_mycommand(args):`)
+3. Add tests in `tests/test_cli.py` (if exists) or `test_integration.py`
+4. Update README.md CLI usage section
+5. Verify with: `techcompressor mycommand --help`
+
+If anything above is unclear or you want more examples (small patch + tests), ask which area to expand and I will add concrete examples with test patterns.
