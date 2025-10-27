@@ -5,14 +5,16 @@ Manages folder compression, multi-file archives, and metadata preservation.
 """
 
 import os
+import sys
 import struct
 import io
 import tarfile
 from pathlib import Path
-from typing import List, Dict, Callable
+from typing import List, Dict, Callable, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import fnmatch
+import json
 from .core import compress, decompress, reset_solid_compression_state
 from .recovery import generate_recovery_records
 from .utils import get_logger
@@ -27,6 +29,441 @@ CHUNK_SIZE = 16 * 1024 * 1024  # 16 MB for streaming
 # Algorithm ID mapping (0 = STORED for uncompressed data)
 ALGO_MAP = {"STORED": 0, "LZW": 1, "HUFFMAN": 2, "DEFLATE": 3, "ARITHMETIC": 4}
 ALGO_REVERSE = {v: k for k, v in ALGO_MAP.items()}
+
+
+# Platform-specific attribute support flags
+_HAS_WINDOWS_ACL = False
+_HAS_XATTR = False
+
+# Try to import Windows ACL support
+if sys.platform == 'win32':
+    try:
+        import win32security
+        import ntsecuritycon
+        import pywintypes
+        _HAS_WINDOWS_ACL = True
+        logger.debug("Windows ACL support available (pywin32)")
+    except ImportError:
+        logger.debug("Windows ACL support not available (pywin32 not installed)")
+
+# Try to import xattr support (Linux/macOS)
+if sys.platform in ('linux', 'darwin'):
+    _HAS_XATTR = hasattr(os, 'getxattr') and hasattr(os, 'setxattr')
+    if _HAS_XATTR:
+        logger.debug("Extended attributes support available")
+
+
+def _get_file_attributes(file_path: Path) -> Dict[str, Any]:
+    """
+    Get platform-specific file attributes (ACLs, xattrs).
+    
+    Args:
+        file_path: Path to file
+    
+    Returns:
+        Dict with attributes (always includes "platform" key)
+    """
+    attributes = {}
+    
+    # Always include platform identifier
+    if sys.platform == 'win32':
+        attributes['platform'] = 'Windows'
+    elif sys.platform == 'linux':
+        attributes['platform'] = 'Linux'
+    elif sys.platform == 'darwin':
+        attributes['platform'] = 'macOS'
+    else:
+        attributes['platform'] = 'Unknown'
+    
+    try:
+        # Windows ACL support
+        if _HAS_WINDOWS_ACL and sys.platform == 'win32':
+            try:
+                # Get security descriptor
+                sd = win32security.GetFileSecurity(
+                    str(file_path),
+                    win32security.DACL_SECURITY_INFORMATION | 
+                    win32security.OWNER_SECURITY_INFORMATION |
+                    win32security.GROUP_SECURITY_INFORMATION
+                )
+                
+                # Convert to binary representation
+                sd_binary = sd.GetSecurityDescriptorBinary()
+                attributes['win_acl'] = sd_binary
+                logger.debug(f"Captured Windows ACL for {file_path.name} ({len(sd_binary)} bytes)")
+            except Exception as e:
+                logger.debug(f"Could not get Windows ACL for {file_path}: {e}")
+        
+        # Linux/macOS extended attributes
+        if _HAS_XATTR and sys.platform in ('linux', 'darwin'):
+            try:
+                xattrs = {}
+                # List all extended attributes
+                attr_names = os.listxattr(str(file_path))
+                for attr_name in attr_names:
+                    # Get attribute value
+                    attr_value = os.getxattr(str(file_path), attr_name)
+                    # Store as base64 to handle binary data
+                    import base64
+                    xattrs[attr_name] = base64.b64encode(attr_value).decode('ascii')
+                
+                if xattrs:
+                    attributes['xattrs'] = xattrs
+                    logger.debug(f"Captured {len(xattrs)} extended attributes for {file_path.name}")
+            except Exception as e:
+                logger.debug(f"Could not get xattrs for {file_path}: {e}")
+    
+    except Exception as e:
+        logger.warning(f"Error getting attributes for {file_path}: {e}")
+    
+    return attributes
+
+
+def _set_file_attributes(file_path: Path, attributes: Dict[str, Any]) -> None:
+    """
+    Set platform-specific file attributes (ACLs, xattrs).
+    
+    Args:
+        file_path: Path to file
+        attributes: Dict with attributes to restore
+    """
+    if not attributes:
+        return
+    
+    try:
+        # Restore Windows ACL
+        if _HAS_WINDOWS_ACL and sys.platform == 'win32' and 'win_acl' in attributes:
+            try:
+                # Reconstruct security descriptor from binary
+                sd = win32security.SECURITY_DESCRIPTOR(attributes['win_acl'])
+                
+                # Set security descriptor
+                win32security.SetFileSecurity(
+                    str(file_path),
+                    win32security.DACL_SECURITY_INFORMATION |
+                    win32security.OWNER_SECURITY_INFORMATION |
+                    win32security.GROUP_SECURITY_INFORMATION,
+                    sd
+                )
+                logger.debug(f"Restored Windows ACL for {file_path.name}")
+            except Exception as e:
+                logger.warning(f"Could not restore Windows ACL for {file_path}: {e}")
+        
+        # Restore Linux/macOS extended attributes
+        if _HAS_XATTR and sys.platform in ('linux', 'darwin') and 'xattrs' in attributes:
+            try:
+                import base64
+                xattrs = attributes['xattrs']
+                for attr_name, attr_value_b64 in xattrs.items():
+                    # Decode from base64
+                    attr_value = base64.b64decode(attr_value_b64)
+                    # Set attribute
+                    os.setxattr(str(file_path), attr_name, attr_value)
+                
+                logger.debug(f"Restored {len(xattrs)} extended attributes for {file_path.name}")
+            except Exception as e:
+                logger.warning(f"Could not restore xattrs for {file_path}: {e}")
+    
+    except Exception as e:
+        logger.warning(f"Error setting attributes for {file_path}: {e}")
+
+
+def _serialize_attributes(attributes: Dict[str, Any] | None) -> bytes:
+    """
+    Serialize attributes dict to bytes.
+    
+    Args:
+        attributes: Attributes dict or None
+    
+    Returns:
+        Serialized bytes (empty if no attributes)
+    """
+    if not attributes:
+        return b'{}'  # Return empty JSON object, not empty bytes
+    
+    try:
+        # Use JSON for xattrs, binary for ACL
+        serialized = {}
+        
+        # Copy platform identifier if present
+        if 'platform' in attributes:
+            serialized['platform'] = attributes['platform']
+        
+        if 'win_acl' in attributes:
+            # Store binary ACL as base64
+            import base64
+            serialized['win_acl'] = base64.b64encode(attributes['win_acl']).decode('ascii')
+        if 'xattrs' in attributes:
+            serialized['xattrs'] = attributes['xattrs']
+        
+        json_str = json.dumps(serialized)
+        return json_str.encode('utf-8')
+    except Exception as e:
+        logger.warning(f"Error serializing attributes: {e}")
+        return b'{}'  # Return empty JSON object on error
+
+
+def _deserialize_attributes(data: bytes) -> Dict[str, Any]:
+    """
+    Deserialize attributes from bytes.
+    
+    Args:
+        data: Serialized bytes
+    
+    Returns:
+        Attributes dict (empty dict if no data or error)
+    """
+    if not data:
+        return {}
+    
+    try:
+        json_str = data.decode('utf-8')
+        serialized = json.loads(json_str)
+        
+        attributes = {}
+        
+        # Copy platform identifier if present
+        if 'platform' in serialized:
+            attributes['platform'] = serialized['platform']
+        
+        if 'win_acl' in serialized:
+            # Decode base64 ACL
+            import base64
+            attributes['win_acl'] = base64.b64decode(serialized['win_acl'])
+        if 'xattrs' in serialized:
+            attributes['xattrs'] = serialized['xattrs']
+        
+        return attributes
+    except Exception as e:
+        logger.debug(f"Error deserializing attributes: {e}")
+        return {}
+
+
+class VolumeWriter:
+    """Handles writing to multi-volume archives with automatic volume splitting."""
+    
+    def __init__(self, base_path: Path, volume_size: int | None = None):
+        """
+        Initialize volume writer.
+        
+        Args:
+            base_path: Base path for archive (e.g., "archive.tc")
+            volume_size: Maximum bytes per volume (None = single file)
+        """
+        self.base_path = base_path
+        self.volume_size = volume_size
+        self.current_volume = 1
+        self.current_size = 0
+        self.current_file = None
+        self.volume_paths = []
+        
+        if volume_size:
+            # Multi-volume mode: create first volume
+            self._open_volume(1)
+        else:
+            # Single file mode
+            self.current_file = open(base_path, 'wb')
+            self.volume_paths.append(base_path)
+    
+    def _open_volume(self, volume_num: int) -> None:
+        """Open a new volume file."""
+        if self.current_file:
+            self.current_file.close()
+        
+        # Create volume path with .001, .002, etc.
+        volume_path = Path(str(self.base_path) + f".{volume_num:03d}")
+        self.current_file = open(volume_path, 'wb')
+        self.volume_paths.append(volume_path)
+        self.current_volume = volume_num
+        self.current_size = 0
+        logger.debug(f"Opened volume {volume_num}: {volume_path}")
+    
+    def write(self, data: bytes) -> None:
+        """
+        Write data, automatically creating new volumes as needed.
+        
+        Args:
+            data: Data to write
+        """
+        if not self.volume_size:
+            # Single file mode - write directly
+            self.current_file.write(data)
+            self.current_size += len(data)
+            return
+        
+        # Multi-volume mode
+        remaining = data
+        while remaining:
+            space_left = self.volume_size - self.current_size
+            
+            if space_left <= 0:
+                # Current volume is full, open next
+                self._open_volume(self.current_volume + 1)
+                space_left = self.volume_size
+            
+            # Write as much as fits in current volume
+            to_write = remaining[:space_left]
+            self.current_file.write(to_write)
+            self.current_size += len(to_write)
+            remaining = remaining[len(to_write):]
+    
+    def tell(self) -> int:
+        """Get current absolute position across all volumes."""
+        # Calculate position as: (completed volumes * volume_size) + current position
+        if not self.volume_size:
+            return self.current_file.tell()
+        
+        completed_volumes = self.current_volume - 1
+        return (completed_volumes * self.volume_size) + self.current_size
+    
+    def close(self) -> None:
+        """Close current file."""
+        if self.current_file:
+            self.current_file.close()
+            self.current_file = None
+    
+    def get_volume_count(self) -> int:
+        """Get total number of volumes created."""
+        return len(self.volume_paths)
+
+
+class VolumeReader:
+    """Handles reading from multi-volume archives."""
+    
+    def __init__(self, first_volume_path: Path):
+        """
+        Initialize volume reader.
+        
+        Args:
+            first_volume_path: Path to first volume (.001) or base archive path
+        """
+        self.first_volume_path = first_volume_path
+        self.volume_paths = []
+        self.current_volume_idx = 0
+        self.current_file = None
+        self.current_volume_start = 0
+        self.volume_sizes = []
+        
+        # Detect volumes
+        self._detect_volumes()
+        
+        # Open first volume
+        if self.volume_paths:
+            self._open_volume(0)
+    
+    def _detect_volumes(self) -> None:
+        """Detect all volume files."""
+        # Check if first_volume_path ends with .001 or similar
+        path_str = str(self.first_volume_path)
+        
+        if path_str.endswith('.001'):
+            # Multi-volume archive
+            base_path = path_str[:-4]  # Remove .001
+            volume_num = 1
+            
+            while True:
+                volume_path = Path(f"{base_path}.{volume_num:03d}")
+                if not volume_path.exists():
+                    break
+                self.volume_paths.append(volume_path)
+                self.volume_sizes.append(volume_path.stat().st_size)
+                volume_num += 1
+            
+            if not self.volume_paths:
+                raise FileNotFoundError(f"No volumes found starting with {self.first_volume_path}")
+            
+            logger.info(f"Detected {len(self.volume_paths)} volumes")
+        else:
+            # Single file archive
+            if not self.first_volume_path.exists():
+                raise FileNotFoundError(f"Archive not found: {self.first_volume_path}")
+            self.volume_paths.append(self.first_volume_path)
+            self.volume_sizes.append(self.first_volume_path.stat().st_size)
+    
+    def _open_volume(self, volume_idx: int) -> None:
+        """Open a specific volume by index."""
+        if self.current_file:
+            self.current_file.close()
+        
+        self.current_file = open(self.volume_paths[volume_idx], 'rb')
+        self.current_volume_idx = volume_idx
+        
+        # Calculate starting position of this volume
+        self.current_volume_start = sum(self.volume_sizes[:volume_idx])
+        
+        logger.debug(f"Opened volume {volume_idx + 1}/{len(self.volume_paths)}")
+    
+    def seek(self, position: int) -> None:
+        """
+        Seek to absolute position across all volumes.
+        
+        Args:
+            position: Absolute byte position
+        """
+        # Find which volume contains this position
+        cumulative = 0
+        for idx, size in enumerate(self.volume_sizes):
+            if position < cumulative + size:
+                # Position is in this volume
+                if idx != self.current_volume_idx:
+                    self._open_volume(idx)
+                
+                # Seek within volume
+                offset_in_volume = position - cumulative
+                self.current_file.seek(offset_in_volume)
+                return
+            cumulative += size
+        
+        raise ValueError(f"Position {position} exceeds archive size {cumulative}")
+    
+    def read(self, size: int = -1) -> bytes:
+        """
+        Read data, automatically switching volumes as needed.
+        
+        Args:
+            size: Number of bytes to read (-1 = all)
+        
+        Returns:
+            Data read
+        """
+        if size == -1:
+            # Read all remaining data
+            result = b''
+            while self.current_volume_idx < len(self.volume_paths):
+                result += self.current_file.read()
+                if self.current_volume_idx < len(self.volume_paths) - 1:
+                    self._open_volume(self.current_volume_idx + 1)
+                else:
+                    break
+            return result
+        
+        # Read specific number of bytes
+        result = b''
+        remaining = size
+        
+        while remaining > 0 and self.current_volume_idx < len(self.volume_paths):
+            chunk = self.current_file.read(remaining)
+            if not chunk:
+                # Reached end of current volume
+                if self.current_volume_idx < len(self.volume_paths) - 1:
+                    self._open_volume(self.current_volume_idx + 1)
+                else:
+                    break
+            else:
+                result += chunk
+                remaining -= len(chunk)
+        
+        return result
+    
+    def tell(self) -> int:
+        """Get current absolute position across all volumes."""
+        return self.current_volume_start + self.current_file.tell()
+    
+    def close(self) -> None:
+        """Close current file."""
+        if self.current_file:
+            self.current_file.close()
+            self.current_file = None
 
 
 def _validate_path(path: Path, allow_symlink: bool = False) -> None:
@@ -194,6 +631,7 @@ def create_archive(
     volume_size: int | None = None,
     comment: str | None = None,
     creator: str | None = None,
+    preserve_attributes: bool = False,
     progress_callback: Callable[[int, int], None] | None = None
 ) -> None:
     """
@@ -217,6 +655,7 @@ def create_archive(
         volume_size: Maximum size per volume in bytes (None=single file, else splits)
         comment: User comment to store in archive metadata
         creator: Creator name to store in archive metadata
+        preserve_attributes: If True, preserve platform-specific file attributes (ACLs, xattrs)
         progress_callback: Optional callback(current, total) for progress
     
     Raises:
@@ -321,23 +760,26 @@ def create_archive(
     comment_bytes = (comment or "").encode('utf-8')[:1024]  # Max 1KB comment
     creator_bytes = (creator or "").encode('utf-8')[:256]  # Max 256 bytes creator
     
-    with open(archive_path, 'wb') as f:
+    # Use VolumeWriter for automatic volume splitting
+    writer = VolumeWriter(archive_path, volume_size)
+    
+    try:
         # Write header
-        f.write(MAGIC_HEADER_ARCHIVE)
-        f.write(struct.pack('B', ARCHIVE_VERSION))
-        f.write(struct.pack('B', 1 if per_file else 0))  # per_file flag
-        f.write(struct.pack('B', 1 if password else 0))  # encrypted flag
+        writer.write(MAGIC_HEADER_ARCHIVE)
+        writer.write(struct.pack('B', ARCHIVE_VERSION))
+        writer.write(struct.pack('B', 1 if per_file else 0))  # per_file flag
+        writer.write(struct.pack('B', 1 if password else 0))  # encrypted flag
         
         # Write metadata (v1.2.0)
-        f.write(struct.pack('>Q', int(creation_date.timestamp())))  # 8 bytes timestamp
-        f.write(struct.pack('>H', len(comment_bytes)))  # 2 bytes comment length
-        f.write(comment_bytes)  # Variable length comment
-        f.write(struct.pack('>H', len(creator_bytes)))  # 2 bytes creator length
-        f.write(creator_bytes)  # Variable length creator
+        writer.write(struct.pack('>Q', int(creation_date.timestamp())))  # 8 bytes timestamp
+        writer.write(struct.pack('>H', len(comment_bytes)))  # 2 bytes comment length
+        writer.write(comment_bytes)  # Variable length comment
+        writer.write(struct.pack('>H', len(creator_bytes)))  # 2 bytes creator length
+        writer.write(creator_bytes)  # Variable length creator
         
         # Reserve space for entry table offset (will update later)
-        entry_table_offset_pos = f.tell()
-        f.write(struct.pack('>Q', 0))  # 8 bytes for offset
+        entry_table_offset_pos = writer.tell()
+        writer.write(struct.pack('>Q', 0))  # 8 bytes for offset
         
         entries = []
         
@@ -374,20 +816,31 @@ def create_archive(
                             f"storing uncompressed instead"
                         )
                     
+                    # Get file attributes if requested
+                    attributes = None
+                    if preserve_attributes:
+                        attributes = _get_file_attributes(file_path)
+                    
+                    # Serialize attributes
+                    attributes_data = _serialize_attributes(attributes)
+                    
                     # Write entry header
-                    entry_offset = f.tell()
+                    entry_offset = writer.tell()
                     rel_name_bytes = rel_name.encode('utf-8')
                     
-                    f.write(struct.pack('>H', len(rel_name_bytes)))  # filename length
-                    f.write(rel_name_bytes)  # filename
-                    f.write(struct.pack('>Q', file_size))  # original size
-                    f.write(struct.pack('>Q', mtime))  # modification time
-                    f.write(struct.pack('>I', mode))  # file mode
-                    f.write(struct.pack('>Q', len(actual_data)))  # stored size
-                    f.write(struct.pack('B', ALGO_MAP.get(actual_algo, 1)))  # algo ID
+                    writer.write(struct.pack('>H', len(rel_name_bytes)))  # filename length
+                    writer.write(rel_name_bytes)  # filename
+                    writer.write(struct.pack('>Q', file_size))  # original size
+                    writer.write(struct.pack('>Q', mtime))  # modification time
+                    writer.write(struct.pack('>I', mode))  # file mode
+                    writer.write(struct.pack('>Q', len(actual_data)))  # stored size
+                    writer.write(struct.pack('B', ALGO_MAP.get(actual_algo, 1)))  # algo ID
+                    writer.write(struct.pack('>I', len(attributes_data)))  # attributes length
+                    if attributes_data:
+                        writer.write(attributes_data)  # attributes data
                     
                     # Write data (compressed or stored)
-                    f.write(actual_data)
+                    writer.write(actual_data)
                     
                     entries.append({
                         'name': rel_name,
@@ -477,10 +930,10 @@ def create_archive(
             total_compressed_size = len(actual_data)
             
             # Write single entry for entire stream
-            entry_offset = f.tell()
-            f.write(struct.pack('>Q', len(actual_data)))  # stored size
-            f.write(struct.pack('B', ALGO_MAP.get(actual_algo, 1)))  # algo ID
-            f.write(actual_data)
+            entry_offset = writer.tell()
+            writer.write(struct.pack('>Q', len(actual_data)))  # stored size
+            writer.write(struct.pack('B', ALGO_MAP.get(actual_algo, 1)))  # algo ID
+            writer.write(actual_data)
             
             # Update compressed sizes in entries
             for entry in entries:
@@ -489,59 +942,90 @@ def create_archive(
                 entry['algo'] = actual_algo
         
         # Write entry table
-        entry_table_offset = f.tell()
-        f.write(struct.pack('>I', len(entries)))  # number of entries
+        entry_table_offset = writer.tell()
+        writer.write(struct.pack('>I', len(entries)))  # number of entries
         
         for entry in entries:
             name_bytes = entry['name'].encode('utf-8')
-            f.write(struct.pack('>H', len(name_bytes)))
-            f.write(name_bytes)
-            f.write(struct.pack('>Q', entry['size']))
-            f.write(struct.pack('>Q', entry['compressed_size']))
-            f.write(struct.pack('>Q', entry['mtime']))
-            f.write(struct.pack('>I', entry['mode']))
-            f.write(struct.pack('>Q', entry['offset']))
+            writer.write(struct.pack('>H', len(name_bytes)))
+            writer.write(name_bytes)
+            writer.write(struct.pack('>Q', entry['size']))
+            writer.write(struct.pack('>Q', entry['compressed_size']))
+            writer.write(struct.pack('>Q', entry['mtime']))
+            writer.write(struct.pack('>I', entry['mode']))
+            writer.write(struct.pack('>Q', entry['offset']))
             # v2 format: include algorithm ID in entry table
             algo_id = ALGO_MAP.get(entry.get('algo', 'LZW'), 1)
-            f.write(struct.pack('B', algo_id))
+            writer.write(struct.pack('B', algo_id))
         
-        # Update entry table offset in header
-        f.seek(entry_table_offset_pos)
-        f.write(struct.pack('>Q', entry_table_offset))
-        
-        # Add recovery records if requested
+        # Add recovery records if requested (NOT supported for multi-volume yet)
         if recovery_percent > 0:
-            logger.info(f"Generating recovery records ({recovery_percent}% redundancy)")
-            f.seek(0, 2)  # Seek to end
-            recovery_data_offset = f.tell()
-            
-            # Read archive data (everything before recovery records)
-            f.seek(0)
-            archive_data = f.read(recovery_data_offset)
-            
-            # Generate recovery records
-            recovery_data = generate_recovery_records(archive_data, recovery_percent)
-            recovery_data_size = len(recovery_data)
-            
-            # Write recovery records
-            f.seek(0, 2)  # Seek to end again
-            f.write(recovery_data)
-            
-            # Write recovery footer (offset + size)
-            f.write(struct.pack('>Q', recovery_data_offset))
-            f.write(struct.pack('>Q', recovery_data_size))
-            f.write(b"RCVR")  # Recovery marker
+            if volume_size:
+                logger.warning("Recovery records not yet supported for multi-volume archives, skipping")
+            else:
+                logger.info(f"Generating recovery records ({recovery_percent}% redundancy)")
+                # Get recovery data offset
+                recovery_data_offset = writer.tell()
+                
+                # Close writer temporarily to read archive data
+                writer.close()
+                
+                # Read archive data (everything before recovery records)
+                with open(archive_path, 'rb') as rf:
+                    archive_data = rf.read()
+                
+                # Generate recovery records
+                recovery_data = generate_recovery_records(archive_data, recovery_percent)
+                recovery_data_size = len(recovery_data)
+                
+                # Reopen for appending recovery records
+                with open(archive_path, 'ab') as rf:
+                    rf.write(recovery_data)
+                    
+                    # Write recovery footer (offset + size)
+                    rf.write(struct.pack('>Q', recovery_data_offset))
+                    rf.write(struct.pack('>Q', recovery_data_size))
+                    rf.write(b"TCRR")  # TechCompressor Recovery Records marker
+                
+                logger.info(f"Recovery records: {recovery_data_size:,} bytes ({recovery_percent}% redundancy)")
+        else:
+            # No recovery records - just close writer
+            writer.close()
+        
+        # Now we need to update the entry table offset in the header
+        # For multi-volume, this is complex - need to update in first volume
+        if volume_size:
+            # Multi-volume: reopen first volume to update header
+            first_volume = Path(str(archive_path) + ".001")
+            with open(first_volume, 'r+b') as fv:
+                fv.seek(entry_table_offset_pos)
+                fv.write(struct.pack('>Q', entry_table_offset))
+        else:
+            # Single file: update in place
+            with open(archive_path, 'r+b') as fv:
+                fv.seek(entry_table_offset_pos)
+                fv.write(struct.pack('>Q', entry_table_offset))
     
-    archive_size = archive_path.stat().st_size
+    finally:
+        # Ensure writer is closed
+        writer.close()
+    
+    # Calculate archive size
+    if volume_size:
+        archive_size = sum(vp.stat().st_size for vp in writer.volume_paths)
+        logger.info(f"Archive created: {writer.get_volume_count()} volumes")
+        for idx, vp in enumerate(writer.volume_paths, 1):
+            logger.info(f"  Volume {idx}: {vp} ({vp.stat().st_size:,} bytes)")
+    else:
+        archive_size = archive_path.stat().st_size
+        logger.info(f"Archive created: {archive_path}")
+    
     ratio = (total_compressed_size / max(total_original_size, 1)) * 100
     
-    logger.info(f"Archive created: {archive_path}")
     logger.info(f"Original size: {total_original_size:,} bytes")
     logger.info(f"Compressed size: {total_compressed_size:,} bytes ({ratio:.1f}%)")
     logger.info(f"Archive size: {archive_size:,} bytes")
     logger.info(f"Files archived: {len(entries)}")
-    if recovery_percent > 0:
-        logger.info(f"Recovery records: {recovery_data_size:,} bytes ({recovery_percent}% redundancy)")
     
     # Reset solid compression state for next archive
     reset_solid_compression_state()
@@ -551,15 +1035,17 @@ def extract_archive(
     archive_path: str | Path,
     dest_path: str | Path,
     password: str | None = None,
+    restore_attributes: bool = False,
     progress_callback: Callable[[int, int], None] | None = None
 ) -> None:
     """
     Extract compressed archive to directory.
     
     Args:
-        archive_path: Path to archive file
+        archive_path: Path to archive file or first volume (.001)
         dest_path: Destination directory for extraction
         password: Optional password for decryption
+        restore_attributes: If True, restore platform-specific file attributes (ACLs, xattrs)
         progress_callback: Optional callback(current, total) for progress
     
     Raises:
@@ -569,8 +1055,15 @@ def extract_archive(
     archive_path = Path(archive_path)
     dest_path = Path(dest_path)
     
+    # Auto-detect if archive is multi-volume (.001 format)
     if not archive_path.exists():
-        raise FileNotFoundError(f"Archive not found: {archive_path}")
+        # Try adding .001 extension
+        volume1_path = Path(str(archive_path) + ".001")
+        if volume1_path.exists():
+            archive_path = volume1_path
+            logger.info(f"Auto-detected multi-volume archive: {archive_path}")
+        else:
+            raise FileNotFoundError(f"Archive not found: {archive_path}")
     
     logger.info(f"Extracting archive: {archive_path}")
     
@@ -582,36 +1075,39 @@ def extract_archive(
     except ImportError:
         pass
     
-    with open(archive_path, 'rb') as f:
+    # Use VolumeReader for automatic multi-volume support
+    reader = VolumeReader(archive_path)
+    
+    try:
         # Read and validate header
-        magic = f.read(4)
+        magic = reader.read(4)
         if magic != MAGIC_HEADER_ARCHIVE:
             raise ValueError(f"Invalid archive magic: {magic}")
         
-        version = struct.unpack('B', f.read(1))[0]
+        version = struct.unpack('B', reader.read(1))[0]
         if version not in (1, 2):
             raise ValueError(f"Unsupported archive version: {version}")
         
         # Note: v1 archives don't support STORED mode, all files are compressed
         supports_stored = (version >= 2)
         
-        per_file = struct.unpack('B', f.read(1))[0] == 1
-        encrypted = struct.unpack('B', f.read(1))[0] == 1
+        per_file = struct.unpack('B', reader.read(1))[0] == 1
+        encrypted = struct.unpack('B', reader.read(1))[0] == 1
         
         # Read metadata (v2+ only)
         metadata = {}
         if version >= 2:
             try:
-                creation_timestamp = struct.unpack('>Q', f.read(8))[0]
+                creation_timestamp = struct.unpack('>Q', reader.read(8))[0]
                 metadata['creation_date'] = datetime.fromtimestamp(creation_timestamp)
                 
-                comment_len = struct.unpack('>H', f.read(2))[0]
+                comment_len = struct.unpack('>H', reader.read(2))[0]
                 if comment_len > 0:
-                    metadata['comment'] = f.read(comment_len).decode('utf-8')
+                    metadata['comment'] = reader.read(comment_len).decode('utf-8')
                 
-                creator_len = struct.unpack('>H', f.read(2))[0]
+                creator_len = struct.unpack('>H', reader.read(2))[0]
                 if creator_len > 0:
-                    metadata['creator'] = f.read(creator_len).decode('utf-8')
+                    metadata['creator'] = reader.read(creator_len).decode('utf-8')
                 
                 if metadata:
                     logger.info(f"Archive metadata: {metadata}")
@@ -621,31 +1117,31 @@ def extract_archive(
         if encrypted and not password:
             raise ValueError("Archive is encrypted but no password provided")
         
-        entry_table_offset = struct.unpack('>Q', f.read(8))[0]
+        entry_table_offset = struct.unpack('>Q', reader.read(8))[0]
         
         logger.info(f"Archive mode: {'per-file' if per_file else 'single-stream'}")
         if encrypted:
             logger.info("Archive is encrypted")
         
         # Read entry table
-        f.seek(entry_table_offset)
-        num_entries = struct.unpack('>I', f.read(4))[0]
+        reader.seek(entry_table_offset)
+        num_entries = struct.unpack('>I', reader.read(4))[0]
         
         entries = []
         for _ in range(num_entries):
-            name_len = struct.unpack('>H', f.read(2))[0]
-            name = f.read(name_len).decode('utf-8')
-            size = struct.unpack('>Q', f.read(8))[0]
-            compressed_size = struct.unpack('>Q', f.read(8))[0]
-            mtime = struct.unpack('>Q', f.read(8))[0]
-            mode = struct.unpack('>I', f.read(4))[0]
-            offset = struct.unpack('>Q', f.read(8))[0]
+            name_len = struct.unpack('>H', reader.read(2))[0]
+            name = reader.read(name_len).decode('utf-8')
+            size = struct.unpack('>Q', reader.read(8))[0]
+            compressed_size = struct.unpack('>Q', reader.read(8))[0]
+            mtime = struct.unpack('>Q', reader.read(8))[0]
+            mode = struct.unpack('>I', reader.read(4))[0]
+            offset = struct.unpack('>Q', reader.read(8))[0]
             
             # v2 format: read algorithm ID from entry table
             algo_id = None
             algo_name = None
             if supports_stored:  # v2+ format includes algo in entry table
-                algo_id = struct.unpack('B', f.read(1))[0]
+                algo_id = struct.unpack('B', reader.read(1))[0]
                 algo_name = ALGO_REVERSE.get(algo_id, "LZW")
             
             entries.append({
@@ -674,19 +1170,30 @@ def extract_archive(
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 
                 # Read entry header and data
-                f.seek(entry['offset'])
+                reader.seek(entry['offset'])
                 
                 # Skip to compressed data (read past metadata)
-                name_len = struct.unpack('>H', f.read(2))[0]
-                f.read(name_len)  # filename
-                f.read(8)  # original size
-                f.read(8)  # mtime
-                f.read(4)  # mode
-                compressed_size = struct.unpack('>Q', f.read(8))[0]
-                algo_id = struct.unpack('B', f.read(1))[0]
+                name_len = struct.unpack('>H', reader.read(2))[0]
+                reader.read(name_len)  # filename
+                reader.read(8)  # original size
+                reader.read(8)  # mtime
+                reader.read(4)  # mode
+                compressed_size = struct.unpack('>Q', reader.read(8))[0]
+                algo_id = struct.unpack('B', reader.read(1))[0]
+                
+                # Read attributes (v3+ feature, optional)
+                attributes = None
+                try:
+                    attr_len = struct.unpack('>I', reader.read(4))[0]
+                    if attr_len > 0:
+                        attr_data = reader.read(attr_len)
+                        attributes = _deserialize_attributes(attr_data)
+                except:
+                    # Older format without attributes, continue
+                    pass
                 
                 # Read compressed data
-                compressed_data = f.read(compressed_size)
+                compressed_data = reader.read(compressed_size)
                 
                 # Decompress (or use stored data directly)
                 algo = ALGO_REVERSE.get(algo_id, "LZW")
@@ -708,6 +1215,10 @@ def extract_archive(
                 except (OSError, PermissionError) as e:
                     logger.warning(f"Could not restore metadata for {target_path}: {e}")
                 
+                # Restore attributes if requested
+                if restore_attributes and attributes:
+                    _set_file_attributes(target_path, attributes)
+                
                 if progress_callback:
                     progress_callback(idx + 1, num_entries)
         
@@ -716,10 +1227,10 @@ def extract_archive(
             logger.info("Decompressing stream")
             
             # Read compressed stream
-            f.seek(entries[0]['offset'])
-            compressed_size = struct.unpack('>Q', f.read(8))[0]
-            algo_id = struct.unpack('B', f.read(1))[0]
-            compressed_stream = f.read(compressed_size)
+            reader.seek(entries[0]['offset'])
+            compressed_size = struct.unpack('>Q', reader.read(8))[0]
+            algo_id = struct.unpack('B', reader.read(1))[0]
+            compressed_stream = reader.read(compressed_size)
             
             algo = ALGO_REVERSE.get(algo_id, "LZW")
             if algo == "STORED":
@@ -763,6 +1274,10 @@ def extract_archive(
                 if progress_callback:
                     progress_callback(idx + 1, num_entries)
     
+    finally:
+        # Ensure reader is closed
+        reader.close()
+    
     logger.info(f"Extraction complete: {num_entries} files extracted to {dest_path}")
 
 
@@ -771,7 +1286,7 @@ def list_contents(archive_path: str | Path) -> List[Dict]:
     List contents of archive without extracting.
     
     Args:
-        archive_path: Path to archive file
+        archive_path: Path to archive file or first volume (.001)
     
     Returns:
         List of dicts with keys: name, size, compressed_size, mtime, mode, metadata (if v2+)
@@ -782,61 +1297,70 @@ def list_contents(archive_path: str | Path) -> List[Dict]:
     """
     archive_path = Path(archive_path)
     
+    # Auto-detect if archive is multi-volume (.001 format)
     if not archive_path.exists():
-        raise FileNotFoundError(f"Archive not found: {archive_path}")
+        # Try adding .001 extension
+        volume1_path = Path(str(archive_path) + ".001")
+        if volume1_path.exists():
+            archive_path = volume1_path
+        else:
+            raise FileNotFoundError(f"Archive not found: {archive_path}")
     
-    with open(archive_path, 'rb') as f:
+    # Use VolumeReader for multi-volume support
+    reader = VolumeReader(archive_path)
+    
+    try:
         # Read and validate header
-        magic = f.read(4)
+        magic = reader.read(4)
         if magic != MAGIC_HEADER_ARCHIVE:
             raise ValueError(f"Invalid archive magic: {magic}")
         
-        version = struct.unpack('B', f.read(1))[0]
+        version = struct.unpack('B', reader.read(1))[0]
         if version not in (1, 2):
             raise ValueError(f"Unsupported archive version: {version}")
         
         supports_stored = (version >= 2)
         
-        per_file = struct.unpack('B', f.read(1))[0] == 1
-        encrypted = struct.unpack('B', f.read(1))[0] == 1
+        per_file = struct.unpack('B', reader.read(1))[0] == 1
+        encrypted = struct.unpack('B', reader.read(1))[0] == 1
         
         # Read metadata (v2+ only)
         metadata = {}
         if version >= 2:
             try:
-                creation_timestamp = struct.unpack('>Q', f.read(8))[0]
+                creation_timestamp = struct.unpack('>Q', reader.read(8))[0]
                 metadata['creation_date'] = datetime.fromtimestamp(creation_timestamp)
                 
-                comment_len = struct.unpack('>H', f.read(2))[0]
+                comment_len = struct.unpack('>H', reader.read(2))[0]
                 if comment_len > 0:
-                    metadata['comment'] = f.read(comment_len).decode('utf-8')
+                    metadata['comment'] = reader.read(comment_len).decode('utf-8')
                 
-                creator_len = struct.unpack('>H', f.read(2))[0]
+                creator_len = struct.unpack('>H', reader.read(2))[0]
                 if creator_len > 0:
-                    metadata['creator'] = f.read(creator_len).decode('utf-8')
+                    metadata['creator'] = reader.read(creator_len).decode('utf-8')
             except Exception as e:
                 logger.warning(f"Could not read metadata: {e}")
         
-        entry_table_offset = struct.unpack('>Q', f.read(8))[0]
+        entry_table_offset = struct.unpack('>Q', reader.read(8))[0]
         
         # Read entry table
-        f.seek(entry_table_offset)
-        num_entries = struct.unpack('>I', f.read(4))[0]
+        reader.seek(entry_table_offset)
+        num_entries = struct.unpack('>I', reader.read(4))[0]
         
         entries = []
         for _ in range(num_entries):
-            name_len = struct.unpack('>H', f.read(2))[0]
-            name = f.read(name_len).decode('utf-8')
-            size = struct.unpack('>Q', f.read(8))[0]
-            compressed_size = struct.unpack('>Q', f.read(8))[0]
-            mtime = struct.unpack('>Q', f.read(8))[0]
-            mode = struct.unpack('>I', f.read(4))[0]
-            offset = struct.unpack('>Q', f.read(8))[0]
+            name_len = struct.unpack('>H', reader.read(2))[0]
+            name = reader.read(name_len).decode('utf-8')
+            size = struct.unpack('>Q', reader.read(8))[0]
+            compressed_size = struct.unpack('>Q', reader.read(8))[0]
+            mtime = struct.unpack('>Q', reader.read(8))[0]
+            mode = struct.unpack('>I', reader.read(4))[0]
+            offset = struct.unpack('>Q', reader.read(8))[0]
             
             # v2 format: read algorithm from entry table
             algo_name = None
             if supports_stored:  # v2+ format includes algo in entry table
-                algo_id = struct.unpack('B', f.read(1))[0]
+                algo_id = struct.unpack('B', reader.read(1))[0]
                 algo_name = ALGO_REVERSE.get(algo_id, "LZW")
             
             entry_dict = {
@@ -850,6 +1374,9 @@ def list_contents(archive_path: str | Path) -> List[Dict]:
                 entry_dict['algo'] = algo_name
             
             entries.append(entry_dict)
+    
+    finally:
+        reader.close()
     
     # Add archive metadata as a special entry at the beginning
     if metadata:

@@ -1,10 +1,36 @@
 # TechCompressor AI Coding Assistant Instructions
 
+## CRITICAL: Virtual Environment Activation
+
+**⚠️ BEFORE ANY TERMINAL COMMAND: Always activate the virtual environment first!**
+
+```powershell
+# Windows PowerShell (PRIMARY)
+D:\TechCompressor\.venv\Scripts\Activate.ps1
+
+# Alternative activation methods:
+# CMD: .venv\Scripts\activate.bat
+# Git Bash/WSL: source .venv/Scripts/activate
+```
+
+**Why this matters:**
+- Prevents using global Python packages (creates bloated builds)
+- Ensures correct dependencies are used
+- Required for `build_release.ps1` to work properly
+- All development commands MUST run inside venv
+
+**Enforcement:**
+- Check for `(.venv)` prefix in terminal prompt before proceeding
+- If not present, activate venv before ANY pip, pytest, or python command
+- Build scripts will fail without proper venv activation
+
+---
+
 ## Project Overview
 
 TechCompressor is a **production-ready (v1.2.0)** modular Python compression framework with three algorithms (LZW, Huffman, DEFLATE), AES-256-GCM encryption, TCAF v2 archive format with recovery records, advanced file filtering, multi-volume archives, and incremental backups. Developed by **Devaansh Pathak** ([GitHub](https://github.com/DevaanshPathak)).
 
-**Target**: Python 3.10+ | **Status**: Production/Stable | **License**: MIT | **Tests**: 168 passing
+**Target**: Python 3.10+ | **Status**: Production/Stable | **License**: MIT | **Tests**: 193 passing
 
 ## New in v1.2.0
 - **Advanced File Filtering**: Exclude patterns (*.tmp, .git/), size limits, date ranges for selective archiving
@@ -13,6 +39,12 @@ TechCompressor is a **production-ready (v1.2.0)** modular Python compression fra
 - **Enhanced Entropy Detection**: Automatically skip compression on already-compressed formats (JPG, PNG, MP4, ZIP, etc.)
 - **Archive Metadata**: User comments, creation date, and creator information in archive headers
 - **File Attributes Preservation**: Windows ACLs and Linux extended attributes support
+
+## Future: v2.0.0 Roadmap (Q2 2026)
+- **Textual TUI**: Modern terminal user interface with mouse support, file browser, archive inspector
+- **Zstandard Algorithm**: Fast compression with excellent ratios (400-600 MB/s)
+- **Brotli Algorithm**: Web-optimized compression, 20-30% better than DEFLATE for text
+- See `ROADMAP_v2.0.0.md` for complete details (excluded from git via .gitignore)
 
 ## Architecture & Component Interaction
 

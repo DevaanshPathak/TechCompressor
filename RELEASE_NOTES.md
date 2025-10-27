@@ -5,7 +5,7 @@
 
 ## Overview
 
-TechCompressor v1.2.0 adds enterprise-grade backup features to the production framework: advanced file filtering for selective archiving, multi-volume archives for splitting large datasets, incremental backups for efficient daily workflows, and enhanced entropy detection for automatic format recognition. Combined with v1.1.0's solid compression and recovery records, TechCompressor now rivals RAR and WinZip in both features and flexibility while remaining fully open-source.
+TechCompressor v1.2.0 completes enterprise-grade backup features: advanced file filtering for selective archiving, multi-volume archives for splitting large datasets, incremental backups for efficient daily workflows, file attributes preservation for complete system backups, and enhanced entropy detection for automatic format recognition. Combined with v1.1.0's solid compression and recovery records, TechCompressor now rivals RAR and WinZip in both features and flexibility while remaining fully open-source.
 
 ## Highlights
 
@@ -20,11 +20,11 @@ Password-protected compression uses **AES-256-GCM** authenticated encryption wit
 
 ### 📦 Flexible Archiving with Advanced Features (v1.2.0)
 The custom **TCAF v2** (TechCompressor Archive Format) now supports:
-- **Advanced File Filtering**: Exclude patterns (*.tmp, .git/), size limits, date ranges
+- **Advanced File Filtering**: Exclude patterns (*.tmp, .git/), size limits for selective archiving
 - **Multi-Volume Archives**: Split into parts (archive.tc.001, .002, etc.) with configurable sizes
 - **Incremental Backups**: Only compress changed files since last archive for 10-50x faster backups
 - **Archive Metadata**: User comments, creation date, creator information
-- **File Attributes**: Windows ACLs and Linux extended attributes preservation
+- **File Attributes**: Windows ACLs and Linux/macOS extended attributes preservation
 - **Recovery Records**: PAR2-style error correction (v1.1.0)
 - **Solid Compression**: Dictionary persistence for 10-30% better ratios (v1.1.0)
 
@@ -33,7 +33,7 @@ The custom **TCAF v2** (TechCompressor Archive Format) now supports:
 - **GUI**: User-friendly Tkinter application with background threading, real-time progress bars, password fields, operation cancellation, and developer credits
 
 ### ⚡ Production-Ready
-All 152 tests pass. Comprehensive test coverage includes algorithm correctness, encryption validation, archive security, integration workflows, and performance regression checks. The codebase uses modern Python 3.10+ features with full type hints and extensive documentation.
+**193 tests passing** (3 platform-specific skipped). Comprehensive test coverage includes algorithm correctness, encryption validation, archive security, multi-volume handling, file attributes preservation, integration workflows, and performance regression checks. The codebase uses modern Python 3.10+ features with full type hints and extensive documentation.
 
 ---
 
@@ -43,7 +43,6 @@ All 152 tests pass. Comprehensive test coverage includes algorithm correctness, 
 Selective archiving with powerful filtering options:
 - **Exclude Patterns**: Skip files matching glob patterns (*.tmp, .git/, __pycache__/)
 - **Size Limits**: `max_file_size` and `min_file_size` parameters filter by file size
-- **Date Ranges**: Archive only files modified after a specific date
 - **Flexible Matching**: Multiple patterns with wildcard support
 - **Use Cases**: Clean backups without build artifacts, logs, or temporary files
 
@@ -61,8 +60,10 @@ create_archive(
 Split large archives into manageable parts for storage or transfer:
 - **Configurable Volume Size**: Set max size per volume (e.g., 650MB for CD, 4.7GB for DVD)
 - **Sequential Naming**: Automatic naming: archive.tc.001, archive.tc.002, ...
+- **VolumeWriter/VolumeReader Classes**: Transparent multi-volume I/O abstraction
 - **Seamless Extraction**: Extract from first volume, auto-reads subsequent parts
-- **Volume Validation**: Size checks and overflow handling
+- **Auto-detection**: Finds .001 file when base path provided
+- **Works Everywhere**: Compatible with all algorithms, encryption, and compression modes
 - **Use Cases**: Backup to multiple USB drives, email-size limits, cloud storage chunks
 
 Example:
@@ -73,6 +74,9 @@ create_archive(
     volume_size=650*1024*1024  # Split into 650MB volumes (CD-size)
 )
 # Creates: backup.tc.001, backup.tc.002, backup.tc.003, ...
+
+# Extract (auto-detects volumes)
+extract_archive("backup.tc", "restored/")  # Finds backup.tc.001 automatically
 ```
 
 ### 📅 Incremental Backups
@@ -100,11 +104,11 @@ create_archive(
 
 ### 🔍 Enhanced Entropy Detection
 Smarter automatic format recognition for incompressible files:
-- **Expanded Format List**: JPG, JPEG, PNG, GIF, MP4, AVI, MP3, ZIP, RAR, 7Z, GZ, BZ2
+- **40+ Formats Detected**: JPG, PNG, GIF, MP4, MP3, ZIP, RAR, 7Z, PDF, DOCX, and more
 - **Extension-Based Detection**: Fast file type checks before content analysis
 - **Auto STORED Mode**: Incompressible files stored directly (no wasted compression)
 - **20-30% Faster**: Reduced processing time by skipping futile compression attempts
-- **Configurable Threshold**: Fine-tune entropy detection sensitivity
+- **Entropy Sampling**: Analyzes first 4KB to calculate compression potential
 
 ### 📝 Archive Metadata
 User-defined metadata for documentation and provenance:
@@ -126,11 +130,31 @@ create_archive(
 
 ### 🔐 File Attributes Preservation
 Complete file restoration with security attributes:
-- **Windows ACLs**: Access Control Lists preserved and restored
-- **Linux Extended Attributes**: xattrs support for Unix systems
-- **File Permissions**: Ownership and mode preservation
-- **Security Context**: Ensures compliance with permission requirements
+- **Windows ACLs**: Access Control Lists preserved and restored (via pywin32)
+- **Linux/macOS Extended Attributes**: xattrs support for Unix systems (via os.getxattr)
+- **Platform Detection**: Automatic detection with graceful degradation
+- **Cross-Platform Safe**: Archives created on Windows extract on Linux (attributes ignored gracefully)
+- **Optional Dependency**: pywin32 not required for basic operation
+- **JSON Serialization**: Base64 encoding for binary attribute data
+- **Backward Compatible**: Old archives without attributes extract normally
 - **Use Cases**: System backups, secure document archiving, permission-critical files
+
+Example:
+```python
+# Create archive with attributes
+create_archive(
+    "secure_docs/",
+    "backup.tc",
+    preserve_attributes=True  # Captures ACLs/xattrs
+)
+
+# Extract with attributes
+extract_archive(
+    "backup.tc",
+    "restored/",
+    restore_attributes=True  # Restores ACLs/xattrs
+)
+```
 
 ---
 
@@ -150,16 +174,23 @@ create_archive(
     per_file=True,
     recovery_percent=0.0,  # v1.1.0
     max_workers=None,  # v1.1.0
-    persist_dict=False,  # v1.1.0
-    exclude_patterns=None,  # v1.2.0 - NEW
-    max_file_size=None,  # v1.2.0 - NEW
-    min_file_size=None,  # v1.2.0 - NEW
-    modified_after=None,  # v1.2.0 - NEW
-    incremental=False,  # v1.2.0 - NEW
-    base_archive=None,  # v1.2.0 - NEW
-    volume_size=None,  # v1.2.0 - NEW
-    comment=None,  # v1.2.0 - NEW
-    creator=None,  # v1.2.0 - NEW
+    exclude_patterns=None,  # v1.2.0 - NEW: File filtering
+    max_file_size=None,  # v1.2.0 - NEW: Max file size filter
+    min_file_size=None,  # v1.2.0 - NEW: Min file size filter
+    incremental=False,  # v1.2.0 - NEW: Incremental backup mode
+    base_archive=None,  # v1.2.0 - NEW: Base for incremental
+    volume_size=None,  # v1.2.0 - NEW: Multi-volume split size
+    preserve_attributes=False,  # v1.2.0 - NEW: Windows ACLs / Linux xattrs
+    comment=None,  # v1.2.0 - NEW: Archive comment
+    creator=None,  # v1.2.0 - NEW: Creator info
+    progress_callback=None
+)
+
+extract_archive(
+    archive_path,
+    dest_path,
+    password=None,
+    restore_attributes=False,  # v1.2.0 - NEW: Restore file attributes
     progress_callback=None
 )
 ```
@@ -167,7 +198,8 @@ create_archive(
 ### Upgrading Archives
 - Existing TCAF v1 and v2 archives extract without modification
 - New metadata fields optional—old archives lack them but remain valid
-- Multi-volume archives require extraction from .001 file
+- Multi-volume archives require extraction from .001 file or base path (auto-detected)
+- File attributes backward compatible—archives without attributes extract normally
 
 ---
 

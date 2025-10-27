@@ -3,7 +3,7 @@
 [![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/DevaanshPathak/TechCompressor)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-168%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-193%20passed-brightgreen.svg)](#testing)
 
 **TechCompressor** is a production-ready, modular Python compression framework featuring multiple algorithms, military-grade encryption, solid compression with dictionary persistence, PAR2-style recovery records, advanced file filtering, multi-volume archives, incremental backups, and both CLI and GUI interfaces. Built for performance, security, and RAR-competitive features.
 
@@ -109,25 +109,27 @@ original = decompress(compressed, algo="DEFLATE")
 compressed = compress(data, algo="DEFLATE", password="secret")
 original = decompress(compressed, algo="DEFLATE", password="secret")
 
-# Archive folder
+# Archive folder with all v1.2.0 features
 create_archive(
     source_path="my_folder/",
     archive_path="backup.tc",
     algo="DEFLATE",
     password="secret",
     per_file=False,  # Single-stream for best compression
-    persist_dict=True,  # v1.1.0: Solid compression
     recovery_percent=5.0,  # v1.1.0: 5% recovery records
-    max_workers=4,  # v1.1.0: Parallel compression
+    max_workers=4,  # Parallel compression
     exclude_patterns=["*.tmp", ".git/", "__pycache__/"],  # v1.2.0: File filtering
     max_file_size=100*1024*1024,  # v1.2.0: Max 100MB per file
+    min_file_size=1024,  # v1.2.0: Skip files < 1KB
     incremental=True,  # v1.2.0: Only changed files
     volume_size=650*1024*1024,  # v1.2.0: Split into 650MB volumes (CD-size)
-    comment="Monthly backup"  # v1.2.0: Archive metadata
+    preserve_attributes=True,  # v1.2.0: Windows ACLs / Linux xattrs
+    comment="Monthly backup",  # v1.2.0: Archive metadata
+    creator="Backup Script v2.0"  # v1.2.0: Creator info
 )
 
-# Extract archive
-extract_archive("backup.tc", "restored/", password="secret")
+# Extract archive with attributes
+extract_archive("backup.tc", "restored/", password="secret", restore_attributes=True)
 ```
 
 **GUI Application:**
@@ -341,28 +343,44 @@ original = decompress(compressed, algo="DEFLATE", password="secret")
 ```python
 from techcompressor.archiver import create_archive, extract_archive, list_contents
 
-# Create archive
+# Create archive with v1.2.0 features
 create_archive(
     source_path="folder/",
     archive_path="backup.tc",
-    algo="DEFLATE",           # Compression algorithm
-    password="secret",        # Optional encryption
-    per_file=False,           # False = single-stream (better compression)
-    progress_callback=None    # Optional callback(percent, message)
+    algo="DEFLATE",              # Compression algorithm
+    password="secret",           # Optional encryption
+    per_file=False,              # False = single-stream (better compression)
+    recovery_percent=5.0,        # v1.1.0: PAR2-style recovery (5% redundancy)
+    max_workers=4,               # Parallel compression threads
+    exclude_patterns=["*.tmp"],  # v1.2.0: Exclude files by pattern
+    max_file_size=100*1024*1024, # v1.2.0: Max file size (100MB)
+    min_file_size=1024,          # v1.2.0: Min file size (1KB)
+    volume_size=650*1024*1024,   # v1.2.0: Split into 650MB volumes
+    preserve_attributes=True,    # v1.2.0: Save ACLs/xattrs
+    incremental=True,            # v1.2.0: Only changed files
+    comment="Backup 2025-10-27", # v1.2.0: Archive comment
+    creator="Backup Script",     # v1.2.0: Creator info
+    progress_callback=None       # Optional callback(current, total)
 )
 
-# Extract archive
+# Extract archive with attribute restoration
 extract_archive(
-    archive_path="backup.tc",
+    archive_path="backup.tc",      # Or backup.tc.001 for multi-volume
     dest_path="output/",
     password="secret",
+    restore_attributes=True,       # v1.2.0: Restore ACLs/xattrs
     progress_callback=None
 )
 
 # List contents (no extraction)
 contents = list_contents("backup.tc")
 for entry in contents:
-    print(f"{entry['name']}: {entry['size']} bytes")
+    if 'name' in entry:  # File entry
+        print(f"{entry['name']}: {entry['size']} bytes → {entry['compressed_size']} bytes")
+    elif 'metadata' in entry:  # Archive metadata
+        print(f"Created: {entry['metadata'].get('creation_date')}")
+        print(f"Comment: {entry['metadata'].get('comment')}")
+```
 ```
 
 **GUI Application:**
@@ -412,14 +430,16 @@ app.run()
 ### Test Suite
 
 **Coverage:**
-- [YES] 137 tests passing (1 skipped on some systems)
-- [YES] Core compression algorithms (LZW, Huffman, DEFLATE)
-- [YES] Encryption and key derivation
-- [YES] Archive creation and extraction
-- [YES] GUI components (headless mode)
-- [YES] Performance and timing
-- [YES] Integration tests
-- [YES] Edge cases and error handling
+- 193 tests passing (3 skipped on some platforms)
+- Core compression algorithms (LZW, Huffman, DEFLATE)
+- Encryption and key derivation
+- Archive creation and extraction (per-file & single-stream)
+- Multi-volume archives (10 tests)
+- File attributes preservation (10 tests, 3 platform-specific)
+- GUI components (headless mode)
+- Performance and timing
+- Integration tests
+- Edge cases and error handling
 
 **Run Tests:**
 ```bash
@@ -444,8 +464,14 @@ pytest -q
 - `test_huffman.py`: Huffman coding (20 tests)
 - `test_deflate.py`: DEFLATE compression (21 tests)
 - `test_crypto.py`: Encryption and security (15 tests)
-- `test_archiver.py`: Archive management (17 tests)
-- `test_integration.py`: Cross-algorithm tests (24 tests)
+- `test_archiver.py`: Archive management (28 tests - includes v1.2.0 features)
+- `test_multi_volume.py`: Multi-volume archives (10 tests)
+- `test_file_attributes.py`: File attributes preservation (10 tests)
+- `test_integration.py`: Cross-algorithm tests (34 tests)
+- `test_gui_basic.py`: GUI components (11 tests)
+- `test_perf_sanity.py`: Performance validation (6 tests)
+- `test_release_smoke.py`: Pre-release sanity checks (14 tests)
+- `test_sanity.py`: Import validation (1 test)
 - `test_gui_basic.py`: GUI components (11 tests)
 - `test_perf_sanity.py`: Performance checks (6 tests)
 

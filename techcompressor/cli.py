@@ -45,6 +45,18 @@ def main():
     create_parser.add_argument('--per-file', action='store_true',
                               help='Compress each file separately (default: False)')
     create_parser.add_argument('--password', help='Password for encryption')
+    create_parser.add_argument('--volume-size', type=int, metavar='BYTES',
+                              help='Split into multi-volume archives (bytes, e.g., 650M for CD)')
+    create_parser.add_argument('--preserve-attributes', action='store_true',
+                              help='Preserve file attributes (Windows ACLs, Linux xattrs)')
+    create_parser.add_argument('--exclude', action='append', metavar='PATTERN',
+                              help='Exclude files matching pattern (can be used multiple times)')
+    create_parser.add_argument('--max-size', type=int, metavar='BYTES',
+                              help='Skip files larger than this size')
+    create_parser.add_argument('--min-size', type=int, metavar='BYTES',
+                              help='Skip files smaller than this size')
+    create_parser.add_argument('--comment', help='Archive comment/description')
+    create_parser.add_argument('--creator', help='Archive creator name')
     
     # Archive extraction command
     extract_parser = subparsers.add_parser('extract', aliases=['x'],
@@ -52,6 +64,8 @@ def main():
     extract_parser.add_argument('archive', help='Archive path')
     extract_parser.add_argument('dest', help='Destination directory')
     extract_parser.add_argument('--password', help='Password for decryption')
+    extract_parser.add_argument('--restore-attributes', action='store_true',
+                              help='Restore file attributes (Windows ACLs, Linux xattrs)')
     
     # List contents command
     list_parser = subparsers.add_parser('list', aliases=['l'],
@@ -144,6 +158,12 @@ def main():
             print(f"Mode: {'per-file' if args.per_file else 'single-stream'}")
             if args.password:
                 print("Encryption: enabled")
+            if hasattr(args, 'volume_size') and args.volume_size:
+                print(f"Multi-volume: {args.volume_size:,} bytes per volume")
+            if hasattr(args, 'preserve_attributes') and args.preserve_attributes:
+                print("File attributes: preserving")
+            if hasattr(args, 'exclude') and args.exclude:
+                print(f"Exclude patterns: {', '.join(args.exclude)}")
             
             start_time = time.perf_counter()
             create_archive(
@@ -151,11 +171,20 @@ def main():
                 args.archive,
                 algo=args.algo,
                 password=args.password,
-                per_file=args.per_file
+                per_file=args.per_file,
+                volume_size=getattr(args, 'volume_size', None),
+                preserve_attributes=getattr(args, 'preserve_attributes', False),
+                exclude_patterns=getattr(args, 'exclude', None),
+                max_file_size=getattr(args, 'max_size', None),
+                min_file_size=getattr(args, 'min_size', None),
+                comment=getattr(args, 'comment', None),
+                creator=getattr(args, 'creator', None)
             )
             elapsed = time.perf_counter() - start_time
             
             print(f"\n✅ Archive created successfully: {args.archive}")
+            if hasattr(args, 'volume_size') and args.volume_size:
+                print(f"   (Multi-volume archive - check for .001, .002, etc.)")
             print(f"   Time: {elapsed:.3f}s")
         
         elif args.command in ('extract', 'x'):
@@ -164,12 +193,15 @@ def main():
             print(f"Destination: {args.dest}")
             if args.password:
                 print("Decryption: enabled")
+            if hasattr(args, 'restore_attributes') and args.restore_attributes:
+                print("File attributes: restoring")
             
             start_time = time.perf_counter()
             extract_archive(
                 args.archive,
                 args.dest,
-                password=args.password
+                password=args.password,
+                restore_attributes=getattr(args, 'restore_attributes', False)
             )
             elapsed = time.perf_counter() - start_time
             

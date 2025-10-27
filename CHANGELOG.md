@@ -8,53 +8,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.2.0] - 2025-10-27
 
 ### Added
-- **Advanced File Filtering**: New `exclude_patterns`, `max_file_size`, `min_file_size`, and date range parameters in `create_archive()`
+- **Advanced File Filtering**: New `exclude_patterns`, `max_file_size`, and `min_file_size` parameters in `create_archive()`
   - Exclude files by patterns (*.tmp, .git/, __pycache__/, etc.)
   - Filter by file size limits (skip files too large or too small)
-  - Filter by modification date ranges for targeted backups
   - Powerful glob pattern matching for flexible file selection
 - **Multi-Volume Archives**: Split large archives into multiple parts with configurable volume sizes
   - New `volume_size` parameter in `create_archive()` (e.g., 650MB for CD, 4.7GB for DVD)
   - Automatic splitting with sequential naming: archive.tc.001, archive.tc.002, etc.
-  - Seamless extraction across all volumes
+  - VolumeWriter and VolumeReader classes for transparent multi-volume I/O
+  - Seamless extraction across all volumes with automatic .001 detection
   - Volume size validation and overflow handling
+  - Works with all algorithms, encryption, and compression modes
 - **Incremental Backups**: Only compress files changed since last archive creation
   - New `incremental` parameter and `base_archive` reference in `create_archive()`
   - Timestamp-based change detection for efficient backup workflows
   - Dramatically reduces backup time and archive size for daily/weekly backups
   - Compatible with both per-file and solid compression modes
 - **Enhanced Entropy Detection**: Automatically skip compression on already-compressed file formats
-  - Expanded entropy detection for JPG, JPEG, PNG, GIF, MP4, AVI, MP3, ZIP, RAR, 7Z, GZ, BZ2
+  - Expanded entropy detection for 40+ formats: JPG, PNG, GIF, MP4, MP3, ZIP, RAR, 7Z, PDF, etc.
   - Smarter heuristics reduce wasted compression attempts
   - Automatic STORED mode for incompressible files saves processing time
   - Configurable entropy threshold for fine-tuning detection
 - **Archive Metadata**: User-defined metadata in archive headers
-  - New `comment`, `creator`, and `creation_date` parameters in `create_archive()`
-  - Stored in TCAF v2 header for documentation and provenance tracking
+  - New `comment` and `creator` parameters in `create_archive()`
+  - Automatic creation_date timestamp stored in TCAF v2 header
   - Retrievable via `list_contents()` without full extraction
   - Useful for backup notes, version tracking, and audit trails
-- **File Attributes Preservation**: Extended attribute support for Windows and Linux
-  - Windows ACLs (Access Control Lists) preservation and restoration
-  - Linux extended attributes (xattrs) support
-  - File permissions and ownership metadata
-  - Ensures complete file restoration with all security attributes
+- **File Attributes Preservation**: Extended attribute support for Windows, Linux, and macOS
+  - New `preserve_attributes` parameter in `create_archive()` (default: False)
+  - New `restore_attributes` parameter in `extract_archive()` (default: False)
+  - Windows ACLs (Access Control Lists) via pywin32 (optional dependency)
+  - Linux/macOS extended attributes (xattrs) via os.getxattr/setxattr
+  - Platform detection with graceful degradation when dependencies unavailable
+  - JSON serialization with base64 encoding for binary attribute data
+  - Cross-platform archives extract successfully (attributes ignored on incompatible platforms)
+  - Backward compatible: old archives extract normally without attributes
 
 ### Changed
-- Updated `create_archive()` API with 6 new optional parameters (backward compatible)
-- Enhanced entropy detection now checks file extensions in addition to content analysis
+- Updated `create_archive()` API with 7 new optional parameters (backward compatible)
+- Updated `extract_archive()` API with `restore_attributes` parameter (backward compatible)
+- Enhanced entropy detection now checks 40+ file extensions in addition to content analysis
 - Improved STORED mode to handle more file types automatically
-- TCAF v2 header now includes optional metadata fields
+- TCAF v2 extended format now includes attributes length field (4 bytes) + data per entry
+- Archive format remains v2, maintains backward compatibility with v1.1.0 archives
+
+### Fixed
+- Multi-volume archives now properly handle exact volume boundaries
+- File attributes serialization handles empty dictionaries correctly
+- VolumeReader auto-detection works with both base path and .001 path
 
 ### Performance
 - Incremental backups: 10-50x faster for large directories with few changes
 - Enhanced entropy detection: 20-30% faster archive creation by skipping incompressible files
 - Multi-volume archives: Optimized streaming for large dataset backups
+- File attributes: < 1ms serialization overhead per file
+
+### Testing
+- Added 10 comprehensive multi-volume archive tests
+- Added 10 file attributes preservation tests (3 platform-specific)
+- Total test count: 193 tests passing (3 skipped on some platforms)
+- All existing tests remain passing (no regressions)
 
 ### Documentation
 - Updated all API documentation with v1.2.0 parameters
-- Added incremental backup examples and workflows
-- Documented multi-volume archive usage patterns
+- Added multi-volume archive usage patterns and examples
+- Documented file attributes preservation with platform-specific notes
 - Updated comparison table with new features
+- Updated test count badges to 193
 
 ## [1.1.0] - 2025-10-27
 

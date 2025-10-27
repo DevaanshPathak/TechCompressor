@@ -195,6 +195,31 @@ class TechCompressorApp:
             command=self._toggle_compress_password
         ).pack(side='left', padx=5)
         
+        # v1.2.0 options
+        advanced_frame = ttk.Frame(options_frame)
+        advanced_frame.pack(fill='x', pady=2)
+        
+        # Volume size entry
+        ttk.Label(advanced_frame, text="Volume size (MB):").pack(side='left', padx=5)
+        self.compress_volume_size_var = tk.StringVar()
+        ttk.Entry(
+            advanced_frame,
+            textvariable=self.compress_volume_size_var,
+            width=10
+        ).pack(side='left', padx=5)
+        ttk.Label(advanced_frame, text="(leave empty for single archive)").pack(side='left', padx=5)
+        
+        # Preserve attributes checkbox
+        advanced_frame2 = ttk.Frame(options_frame)
+        advanced_frame2.pack(fill='x', pady=2)
+        
+        self.compress_preserve_attrs_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            advanced_frame2,
+            text="Preserve file attributes (Windows ACLs / Linux xattrs)",
+            variable=self.compress_preserve_attrs_var
+        ).pack(side='left', padx=5)
+        
         # Progress frame
         progress_frame = ttk.LabelFrame(tab, text="Progress", padding="5")
         progress_frame.pack(fill='both', expand=True, pady=5)
@@ -274,6 +299,17 @@ class TechCompressorApp:
             text="Show",
             variable=self.extract_show_pass_var,
             command=self._toggle_extract_password
+        ).pack(side='left', padx=5)
+        
+        # v1.2.0 options
+        advanced_extract_frame = ttk.Frame(pass_frame)
+        advanced_extract_frame.pack(fill='x', pady=5)
+        
+        self.extract_restore_attrs_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            advanced_extract_frame,
+            text="Restore file attributes (Windows ACLs / Linux xattrs)",
+            variable=self.extract_restore_attrs_var
         ).pack(side='left', padx=5)
         
         # Progress frame
@@ -564,6 +600,19 @@ class TechCompressorApp:
         password = self.compress_password_var.get() or None
         per_file = self.compress_per_file_var.get()
         
+        # v1.2.0 parameters
+        volume_size_mb = self.compress_volume_size_var.get().strip()
+        volume_size = None
+        if volume_size_mb:
+            try:
+                volume_size = int(float(volume_size_mb) * 1024 * 1024)  # Convert MB to bytes
+            except ValueError:
+                messagebox.showerror("Error", "Invalid volume size. Please enter a number (MB).")
+                self.compress_button.config(state='normal')
+                return
+        
+        preserve_attributes = self.compress_preserve_attrs_var.get()
+        
         # Submit task
         self.current_task = self.executor.submit(
             self._compress_worker,
@@ -571,12 +620,14 @@ class TechCompressorApp:
             output_path,
             algo,
             password,
-            per_file
+            per_file,
+            volume_size,
+            preserve_attributes
         )
         
         logger.info(f"Compression started: {input_path} -> {output_path}")
     
-    def _compress_worker(self, input_path: str, output_path: str, algo: str, password: Optional[str], per_file: bool):
+    def _compress_worker(self, input_path: str, output_path: str, algo: str, password: Optional[str], per_file: bool, volume_size: Optional[int], preserve_attributes: bool):
         """Background worker for compression."""
         try:
             input_path_obj = Path(input_path)
@@ -604,9 +655,14 @@ class TechCompressorApp:
                     algo=algo,
                     password=password,
                     per_file=per_file,
+                    volume_size=volume_size,
+                    preserve_attributes=preserve_attributes,
                     progress_callback=progress_callback
                 )
-                self.progress_queue.put(('compress', 100, "Archive created successfully!"))
+                if volume_size:
+                    self.progress_queue.put(('compress', 100, "Multi-volume archive created successfully!"))
+                else:
+                    self.progress_queue.put(('compress', 100, "Archive created successfully!"))
             else:
                 # Single file compression
                 self.progress_queue.put(('compress', 10, "Reading file..."))
@@ -661,18 +717,20 @@ class TechCompressorApp:
         
         # Get parameters
         password = self.extract_password_var.get() or None
+        restore_attributes = self.extract_restore_attrs_var.get()
         
         # Submit task
         self.current_task = self.executor.submit(
             self._extract_worker,
             input_path,
             output_path,
-            password
+            password,
+            restore_attributes
         )
         
         logger.info(f"Extraction started: {input_path} -> {output_path}")
     
-    def _extract_worker(self, input_path: str, output_path: str, password: Optional[str]):
+    def _extract_worker(self, input_path: str, output_path: str, password: Optional[str], restore_attributes: bool):
         """Background worker for extraction."""
         try:
             def progress_callback(current: int, total: int):
@@ -702,6 +760,7 @@ class TechCompressorApp:
                     input_path,
                     output_path,
                     password=password,
+                    restore_attributes=restore_attributes,
                     progress_callback=progress_callback
                 )
                 self.progress_queue.put(('extract', 100, "Archive extracted successfully!"))
