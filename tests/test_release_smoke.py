@@ -182,7 +182,7 @@ def test_smoke_version():
     """Quick test that version is accessible."""
     import techcompressor
     assert hasattr(techcompressor, '__version__')
-    assert techcompressor.__version__ == "1.0.0"
+    assert techcompressor.__version__ == "1.1.0"
 
 
 def test_smoke_cli_imports():

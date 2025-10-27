@@ -9,6 +9,10 @@ MAGIC_HEADER_LZW = b"TCZ1"
 MAX_DICT_SIZE = 4096
 INITIAL_DICT_SIZE = 256
 
+# Shared compression state for solid mode (dictionary persistence)
+_solid_lzw_dict = None
+_solid_lzw_next_code = None
+
 # Huffman Configuration
 MAGIC_HEADER_HUFFMAN = b"TCH1"
 
@@ -18,7 +22,7 @@ DEFAULT_WINDOW_SIZE = 32768  # 32 KB sliding window
 DEFAULT_LOOKAHEAD = 258  # Maximum match length
 
 
-def _lzw_compress(data: bytes) -> bytes:
+def _lzw_compress(data: bytes, persist_dict: bool = False) -> bytes:
     """
     Internal LZW compression implementation.
     
@@ -28,14 +32,26 @@ def _lzw_compress(data: bytes) -> bytes:
     3. Output code for matched sequence and add new sequence to dictionary
     4. Dictionary grows until MAX_DICT_SIZE, then resets
     
+    Args:
+        data: Bytes to compress
+        persist_dict: If True, preserve dictionary state for next call (solid mode)
+    
     Returns compressed codewords as packed bytes.
     """
+    global _solid_lzw_dict, _solid_lzw_next_code
+    
     if not data:
         return b""
     
-    # Initialize dictionary with single bytes
-    dictionary = {bytes([i]): i for i in range(INITIAL_DICT_SIZE)}
-    next_code = INITIAL_DICT_SIZE
+    # Initialize or restore dictionary
+    if persist_dict and _solid_lzw_dict is not None:
+        # Continue with existing dictionary from previous file
+        dictionary = _solid_lzw_dict.copy()
+        next_code = _solid_lzw_next_code
+    else:
+        # Initialize dictionary with single bytes
+        dictionary = {bytes([i]): i for i in range(INITIAL_DICT_SIZE)}
+        next_code = INITIAL_DICT_SIZE
     
     result = []
     current_sequence = b""
@@ -65,9 +81,21 @@ def _lzw_compress(data: bytes) -> bytes:
     if current_sequence:
         result.append(dictionary[current_sequence])
     
+    # Save dictionary state for next call if persisting
+    if persist_dict:
+        _solid_lzw_dict = dictionary.copy()
+        _solid_lzw_next_code = next_code
+    
     # Pack codes into bytes (each code is 2 bytes, big-endian)
     packed = b"".join(struct.pack(">H", code) for code in result)
     return packed
+
+
+def reset_solid_compression_state() -> None:
+    """Reset global dictionary state for solid compression. Call between archives."""
+    global _solid_lzw_dict, _solid_lzw_next_code
+    _solid_lzw_dict = None
+    _solid_lzw_next_code = None
 
 
 def _lzw_decompress(compressed: bytes) -> bytes:
@@ -768,7 +796,7 @@ def _decompress_deflate(compressed: bytes) -> bytes:
     return bytes(result)
 
 
-def compress(data: bytes, algo: str = "LZW", password: str | None = None) -> bytes:
+def compress(data: bytes, algo: str = "LZW", password: str | None = None, persist_dict: bool = False) -> bytes:
     """
     Compress input data using the specified algorithm.
     
@@ -776,6 +804,7 @@ def compress(data: bytes, algo: str = "LZW", password: str | None = None) -> byt
         data: Raw bytes to compress
         algo: Compression algorithm ("LZW", "HUFFMAN", or "DEFLATE" currently supported)
         password: Optional password for encryption
+        persist_dict: If True, preserve compression dictionary for next call (solid mode)
     
     Returns:
         Compressed bytes with header
@@ -829,7 +858,7 @@ def compress(data: bytes, algo: str = "LZW", password: str | None = None) -> byt
 
             # LZW candidate (always try - fast)
             try:
-                lzw_payload = MAGIC_HEADER_LZW + struct.pack(">H", MAX_DICT_SIZE) + _lzw_compress(data)
+                lzw_payload = MAGIC_HEADER_LZW + struct.pack(">H", MAX_DICT_SIZE) + _lzw_compress(data, persist_dict=persist_dict)
                 candidates.append(("LZW", lzw_payload))
             except Exception:
                 logger.exception("LZW pass failed during AUTO mode")
@@ -871,7 +900,7 @@ def compress(data: bytes, algo: str = "LZW", password: str | None = None) -> byt
 
     elif algo_upper == "LZW":
         # Perform LZW compression
-        compressed_data = _lzw_compress(data)
+        compressed_data = _lzw_compress(data, persist_dict=persist_dict)
         header = MAGIC_HEADER_LZW + struct.pack(">H", MAX_DICT_SIZE)
         result = header + compressed_data
     elif algo_upper == "HUFFMAN":

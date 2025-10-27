@@ -6,6 +6,18 @@ Write-Host "TechCompressor Release Builder" -ForegroundColor Cyan
 Write-Host "================================" -ForegroundColor Cyan
 Write-Host ""
 
+# Extract version from pyproject.toml
+Write-Host "Reading version from pyproject.toml..." -ForegroundColor Yellow
+$pyprojectContent = Get-Content "pyproject.toml" -Raw
+if ($pyprojectContent -match 'version\s*=\s*"([^"]+)"') {
+    $VERSION = $matches[1]
+    Write-Host "✓ Building version: $VERSION" -ForegroundColor Green
+} else {
+    Write-Host "✗ Failed to extract version from pyproject.toml" -ForegroundColor Red
+    exit 1
+}
+Write-Host ""
+
 # Check if PyInstaller is installed
 Write-Host "[1/6] Checking dependencies..." -ForegroundColor Yellow
 try {
@@ -81,7 +93,7 @@ Copy-Item "SECURITY.md" "release\"
 
 # Create release README
 $releaseReadme = @"
-# TechCompressor v1.0.0 - Standalone Release
+# TechCompressor v$VERSION - Standalone Release
 
 ## What's Included
 
@@ -131,7 +143,7 @@ Write-Host "✓ Release package created in: release\" -ForegroundColor Green
 # Create ZIP for distribution
 Write-Host ""
 Write-Host "Creating ZIP archive for GitHub release..." -ForegroundColor Yellow
-$zipName = "TechCompressor-v1.0.0-Windows-x64.zip"
+$zipName = "TechCompressor-v$VERSION-Windows-x64.zip"
 $zipPath = "dist\$zipName"
 Compress-Archive -Path "release\*" -DestinationPath $zipPath -Force
 if (Test-Path $zipPath) {

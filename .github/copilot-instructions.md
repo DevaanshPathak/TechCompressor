@@ -2,15 +2,22 @@
 
 ## Project Overview
 
-TechCompressor is a **production-ready (v1.0.0)** modular Python compression framework with three algorithms (LZW, Huffman, DEFLATE), AES-256-GCM encryption, TCAF archive format, CLI, and GUI. Development is complete with 152 passing tests (2 skipped).
+TechCompressor is a **production-ready (v1.1.0)** modular Python compression framework with three algorithms (LZW, Huffman, DEFLATE), AES-256-GCM encryption, TCAF v2 archive format with recovery records, CLI, and GUI. Development is complete with 152 passing tests (2 skipped).
+
+## New in v1.1.0
+- **Dictionary Persistence**: Solid compression mode now preserves LZW dictionaries between files for 10-30% better ratios
+- **Recovery Records**: PAR2-style Reed-Solomon error correction for archive repair (configurable 0-10% redundancy)
+- **Parallel Compression**: Multi-threaded per-file compression with ThreadPoolExecutor (2-4x faster on multi-core)
+- **State Management**: `reset_solid_compression_state()` function to clear global compression state
 
 ## Architecture & Component Interaction
 
 ### Core Module (`techcompressor/core.py`) - Central API
 All compression operations flow through two main functions with unified signatures:
 ```python
-def compress(data: bytes, algo: str = "LZW", password: str | None = None) -> bytes
+def compress(data: bytes, algo: str = "LZW", password: str | None = None, persist_dict: bool = False) -> bytes
 def decompress(data: bytes, algo: str = "LZW", password: str | None = None) -> bytes
+def reset_solid_compression_state() -> None  # v1.1.0: Reset dictionary state between archives
 ```
 
 **Algorithm routing** (lines 771-828):

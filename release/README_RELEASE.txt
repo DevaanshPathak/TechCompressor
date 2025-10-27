@@ -1,4 +1,4 @@
-# TechCompressor v1.0.0 - Standalone Release
+# TechCompressor v1.1.0 - Standalone Release
 
 ## What's Included
 

@@ -10,7 +10,9 @@ import io
 import tarfile
 from pathlib import Path
 from typing import List, Dict, Callable
-from .core import compress, decompress
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from .core import compress, decompress, reset_solid_compression_state
+from .recovery import generate_recovery_records
 from .utils import get_logger
 
 logger = get_logger(__name__)
@@ -121,6 +123,8 @@ def create_archive(
     algo: str = "LZW",
     password: str | None = None,
     per_file: bool = True,
+    recovery_percent: float = 0.0,
+    max_workers: int | None = None,
     progress_callback: Callable[[int, int], None] | None = None
 ) -> None:
     """
@@ -131,8 +135,10 @@ def create_archive(
         archive_path: Path for output archive
         algo: Compression algorithm ("LZW", "HUFFMAN", "DEFLATE")
         password: Optional password for encryption
-        per_file: If True, compress each file separately (random access).
-                  If False, compress entire stream (better ratio).
+        per_file: If True, compress each file separately (random access, parallel).
+                  If False, compress entire stream (better ratio, solid mode).
+        recovery_percent: Percentage of data for recovery records (0-10%, 0=disabled)
+        max_workers: Max parallel workers for per_file=True (None=auto, 1=sequential)
         progress_callback: Optional callback(current, total) for progress
     
     Raises:
@@ -372,6 +378,29 @@ def create_archive(
         # Update entry table offset in header
         f.seek(entry_table_offset_pos)
         f.write(struct.pack('>Q', entry_table_offset))
+        
+        # Add recovery records if requested
+        if recovery_percent > 0:
+            logger.info(f"Generating recovery records ({recovery_percent}% redundancy)")
+            f.seek(0, 2)  # Seek to end
+            recovery_data_offset = f.tell()
+            
+            # Read archive data (everything before recovery records)
+            f.seek(0)
+            archive_data = f.read(recovery_data_offset)
+            
+            # Generate recovery records
+            recovery_data = generate_recovery_records(archive_data, recovery_percent)
+            recovery_data_size = len(recovery_data)
+            
+            # Write recovery records
+            f.seek(0, 2)  # Seek to end again
+            f.write(recovery_data)
+            
+            # Write recovery footer (offset + size)
+            f.write(struct.pack('>Q', recovery_data_offset))
+            f.write(struct.pack('>Q', recovery_data_size))
+            f.write(b"RCVR")  # Recovery marker
     
     archive_size = archive_path.stat().st_size
     ratio = (total_compressed_size / max(total_original_size, 1)) * 100
@@ -381,6 +410,11 @@ def create_archive(
     logger.info(f"Compressed size: {total_compressed_size:,} bytes ({ratio:.1f}%)")
     logger.info(f"Archive size: {archive_size:,} bytes")
     logger.info(f"Files archived: {len(entries)}")
+    if recovery_percent > 0:
+        logger.info(f"Recovery records: {recovery_data_size:,} bytes ({recovery_percent}% redundancy)")
+    
+    # Reset solid compression state for next archive
+    reset_solid_compression_state()
 
 
 def extract_archive(
