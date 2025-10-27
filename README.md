@@ -171,16 +171,15 @@ How does TechCompressor compare to ZIP, RAR, and 7-Zip? Here's a comprehensive b
 
 #### **Key Advantages:**
 
-- ** Developer-Friendly**: Native Python API with clean, documented interface
-- ** Security-First**: Stronger key derivation (100K iterations vs. ZIP's weak encryption)
-- ** Smart Compression**: STORED mode saves time/space on incompressible files (PNGs, videos, archives)
-- ** Algorithm Choice**: Pick the best tool for your data (LZW for speed, DEFLATE for ratio, Huffman for text)
-- ** Archive Flexibility**: Per-file or single-stream compression modes
-- ** Truly Open**: MIT licensed, no restrictions, fully inspectable code
+- **Developer-Friendly**: Native Python API with clean, documented interface
+- **Security-First**: Stronger key derivation (100K iterations vs. ZIP's weak encryption)
+- **Smart Compression**: STORED mode saves time/space on incompressible files (PNGs, videos, archives)
+- **Algorithm Choice**: Pick the best tool for your data (LZW for speed, DEFLATE for ratio, Huffman for text)
+- **Archive Flexibility**: Per-file or single-stream compression modes
+- **Truly Open**: MIT licensed, no restrictions, fully inspectable code
 
 #### **When to Use TechCompressor:**
-
-[YES] **Best For:**
+ **Best For:**
 - Python applications needing compression
 - Automated backup scripts
 - Development/testing compression algorithms
@@ -196,13 +195,12 @@ How does TechCompressor compare to ZIP, RAR, and 7-Zip? Here's a comprehensive b
 
 ##  Algorithm Performance
 
-### Algorithm Comparison
+| Algorithm   | Best For         | Speed | Compression | Memory | Notes               |
+| ----------- | ---------------- | ----- | ----------- | ------ | ------------------- |
+| **DEFLATE** | General purpose  | ⭐⭐⭐⭐  | ⭐⭐⭐⭐⭐       | Medium | Recommended default |
+| **LZW**     | Repetitive data  | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐        | Low    | Fastest compression |
+| **Huffman** | Frequency-skewed | ⭐⭐⭐⭐  | ⭐⭐⭐⭐        | Low    | Good for text       |
 
-| Algorithm | Best For | Speed | Compression | Memory | Notes |
-|-----------|----------|-------|-------------|--------|-------|
-| **DEFLATE** | General purpose | ****☆ | ***** | Medium | Recommended default |
-| **LZW** | Repetitive data | ***** | ***☆☆ | Low | Fastest compression |
-| **Huffman** | Frequency-skewed | ****☆ | ***☆☆ | Low | Good for text |
 
 ### Typical Performance
 *Tested on 10KB repetitive text data:*
@@ -252,17 +250,17 @@ techcompressor --benchmark
 - **Authentication Tag**: 16 bytes
 
 ### Security Best Practices
-[YES] Use strong, unique passwords (12+ characters)  
-[YES] Store passwords in a password manager  
-[YES] No password = permanent data loss (no recovery)  
-[YES] Encrypted archives include integrity verification  
-[YES] Path traversal protection prevents malicious archives  
-[YES] Symlinks rejected to avoid infinite loops  
+- Use strong, unique passwords (12+ characters)  
+- Store passwords in a password manager  
+- No password = permanent data loss (no recovery)  
+- Encrypted archives include integrity verification  
+- Path traversal protection prevents malicious archives  
+- Symlinks rejected to avoid infinite loops  
 
 ### Security Warnings
-[LIMITED] **Password Loss = Data Loss**: No backdoors or recovery mechanisms  
-[LIMITED] **Compression Leaks Info**: Data patterns visible despite encryption  
-[LIMITED] **PBKDF2 Intentionally Slow**: ~50-100ms for key derivation (security feature)  
+- **Password Loss = Data Loss**: No backdoors or recovery mechanisms  
+- **Compression Leaks Info**: Data patterns visible despite encryption  
+- **PBKDF2 Intentionally Slow**: ~50-100ms for key derivation (security feature)  
 
 ---
 

@@ -4,7 +4,7 @@
 
 TechCompressor is a **production-ready (v1.2.0)** modular Python compression framework with three algorithms (LZW, Huffman, DEFLATE), AES-256-GCM encryption, TCAF v2 archive format with recovery records, advanced file filtering, multi-volume archives, and incremental backups. Developed by **Devaansh Pathak** ([GitHub](https://github.com/DevaanshPathak)).
 
-**Target**: Python 3.10+ | **Status**: Production/Stable | **License**: MIT
+**Target**: Python 3.10+ | **Status**: Production/Stable | **License**: MIT | **Tests**: 168 passing
 
 ## New in v1.2.0
 - **Advanced File Filtering**: Exclude patterns (*.tmp, .git/), size limits, date ranges for selective archiving
@@ -14,64 +14,62 @@ TechCompressor is a **production-ready (v1.2.0)** modular Python compression fra
 - **Archive Metadata**: User comments, creation date, and creator information in archive headers
 - **File Attributes Preservation**: Windows ACLs and Linux extended attributes support
 
-## New in v1.1.0
-- **Dictionary Persistence**: Solid compression mode now preserves LZW dictionaries between files for 10-30% better ratios
-- **Recovery Records**: PAR2-style Reed-Solomon error correction for archive repair (configurable 0-10% redundancy)
-- **Parallel Compression**: Multi-threaded per-file compression with ThreadPoolExecutor (2-4x faster on multi-core)
-- **State Management**: `reset_solid_compression_state()` function to clear global compression state
-
----
-
 ## Architecture & Component Interaction
 
-### Core Module (`techcompressor/core.py`) - Central API
-All compression operations flow through two main functions with unified signatures:
+### Core Module (`techcompressor/core.py`) - Central API (1059 lines)
+All compression operations flow through these main functions:
 ```python
 def compress(data: bytes, algo: str = "LZW", password: str | None = None, persist_dict: bool = False) -> bytes
 def decompress(data: bytes, algo: str = "LZW", password: str | None = None) -> bytes
-def reset_solid_compression_state() -> None  # v1.1.0: Reset dictionary state between archives
+def reset_solid_compression_state() -> None  # Reset dictionary state between archives
+def is_likely_compressed(data: bytes, filename: str | None = None) -> bool  # Entropy + extension check
 ```
 
-**Algorithm routing** (lines 771-828):
-- `algo` parameter determines algorithm: "LZW" | "HUFFMAN" | "DEFLATE" | "AUTO" | "STORED"
-- STORED (algorithm ID 0): No compression, direct storage for incompressible files (v2 archives only)
-- AUTO mode uses smart heuristics:
+**Algorithm routing** (core.py lines 771-828):
+- `algo` parameter: "LZW" | "HUFFMAN" | "DEFLATE" | "AUTO" | "STORED"
+- STORED (algorithm ID 0): No compression, direct storage for incompressible files
+- AUTO mode smart heuristics (see `compress()` function):
   - Files > 5MB: Skip DEFLATE (too slow), try only LZW + Huffman
   - Files > 50MB: Skip Huffman, use only LZW
-  - High entropy files (>0.9): Skip all trials, use LZW only (likely already compressed/encrypted)
-  - Entropy check: samples first 4KB, calculates unique_bytes/256 ratio
+  - High entropy (>0.9) or compressed extension: Use LZW only (already compressed/encrypted)
+  - Entropy check: samples first 4KB, calculates `unique_bytes/256` ratio
+  - Extension check: detects 40+ compressed formats (JPG, PNG, MP4, ZIP, PDF, etc.)
 - Each algorithm has private implementation: `_lzw_compress()`, `_huffman_compress()`, `_compress_deflate()`
-- Magic headers identify format: `TCZ1` (LZW), `TCH1` (Huffman), `TCD1` (DEFLATE), `TCE1` (encrypted)
+- **Magic headers** (4 bytes): `TCZ1` (LZW), `TCH1` (Huffman), `TCD1` (DEFLATE), `TCE1` (encrypted), `TCAF` (archive)
 - **Critical**: Decompression validates magic headers to prevent wrong-algorithm errors
 
-**Encryption integration** (lines 823-827, 853-858):
+**Encryption integration** (core.py lines 823-827, 853-858):
 - When `password` is provided, `crypto.encrypt_aes_gcm()` wraps compressed data
 - Decompression auto-detects `TCE1` header and decrypts before algorithm processing
 - No double encryption - encryption only happens at top level
 
 ### Compression Algorithm Details
 
-**LZW (lines 20-136)**: Dictionary-based, fast, good for repetitive data
+**LZW** (core.py lines 20-136): Dictionary-based, fast, good for repetitive data
 - Dictionary size: 4096 entries (configurable via `MAX_DICT_SIZE`)
 - Auto-resets dictionary when full (supports unlimited input)
 - Output format: 2-byte big-endian codes (`struct.pack(">H", code)`)
-- **NEW v1.1.0**: Supports `persist_dict=True` for solid compression (preserves dictionary between files)
+- **Solid compression**: `persist_dict=True` preserves dictionary between files (10-30% better ratios)
+- **Global state**: `_solid_lzw_dict` and `_solid_lzw_next_code` - reset with `reset_solid_compression_state()`
 
-**Huffman (lines 139-363)**: Frequency-based, optimal for non-uniform distributions
+**Huffman** (core.py lines 139-363): Frequency-based, optimal for non-uniform distributions
 - Uses heap-based tree construction with `_HuffmanNode` class
 - Serializes tree structure in compressed output for decompression
 - Handles single-unique-byte edge case (assigns code "0")
 
-**DEFLATE (lines 366-766)**: Hybrid LZ77 + Huffman
+**DEFLATE** (core.py lines 366-766): Hybrid LZ77 + Huffman
 - LZ77 sliding window: 32KB (`DEFAULT_WINDOW_SIZE`), max match: 258 bytes
 - Two-pass: LZ77 finds matches → Huffman encodes results
 - Best compression ratio but slower than LZW
 
-### Archiver Module (`techcompressor/archiver.py`)
+### Archiver Module (`techcompressor/archiver.py` - 858 lines)
 Implements **TCAF v2** (TechCompressor Archive Format) for folders/multiple files:
 ```python
 create_archive(source_path, archive_path, algo="LZW", password=None, per_file=True, 
-               recovery_percent=0.0, max_workers=None, progress_callback=None)
+               recovery_percent=0.0, max_workers=None, progress_callback=None,
+               exclude_patterns=None, max_file_size=None, min_file_size=None,
+               volume_size=None, incremental=False, base_archive=None,
+               comment=None, creator=None)
 extract_archive(archive_path, dest_path, password=None, progress_callback=None)
 list_contents(archive_path) -> List[Dict]  # Returns metadata without extraction
 ```
@@ -87,7 +85,7 @@ list_contents(archive_path) -> List[Dict]  # Returns metadata without extraction
 - Dramatically reduces archive size for incompressible files (PNG, JPG, MP4, ZIP, etc.)
 - Example: 354KB directory with PNGs → 350KB archive (vs 599KB in v1)
 
-**Security features** (lines 32-95):
+**Security features** (archiver.py lines 32-95):
 - `_validate_path()`: Blocks symlinks to prevent infinite loops
 - `_check_recursion()`: Prevents creating archive inside source directory
 - `_sanitize_extract_path()`: Prevents path traversal attacks (e.g., `../../../etc/passwd`)
@@ -104,7 +102,7 @@ Entry table format (v2):
 ```
 Version: 2 (supports STORED mode + algo in entry table), backward compatible with v1 archives
 
-### Crypto Module (`techcompressor/crypto.py`)
+### Crypto Module (`techcompressor/crypto.py` - 120 lines)
 **AES-256-GCM** with PBKDF2 key derivation:
 - Iterations: 100,000 (line 20) - intentionally slow to resist brute-force
 - Random salt (16 bytes) and nonce (12 bytes) per encryption
@@ -113,7 +111,7 @@ Version: 2 (supports STORED mode + algo in entry table), backward compatible wit
 
 **Critical**: Encryption is **one-way only** - no password recovery mechanism. Data loss is permanent without password.
 
-### CLI (`techcompressor/cli.py`)
+### CLI (`techcompressor/cli.py` - 380 lines)
 Command structure: `techcompressor [--gui|--benchmark] <command> [args]`
 - `create/c` - Create archive from file/folder
 - `extract/x` - Extract archive
@@ -135,7 +133,7 @@ Standalone performance testing script with multiple data types:
 - **Output format**: Pretty-printed tables with size/time comparisons
 - Run directly: `python bench.py` (no CLI integration needed)
 
-### Recovery Module (`techcompressor/recovery.py`) - v1.1.0
+### Recovery Module (`techcompressor/recovery.py` - 304 lines)
 PAR2-style error correction for archive repair:
 - **Reed-Solomon Implementation**: `ReedSolomonSimple` class with XOR-based parity
 - **Block-based Recovery**: 64KB blocks with configurable parity (0-10% redundancy)
@@ -143,7 +141,7 @@ PAR2-style error correction for archive repair:
 - **Functions**: `generate_recovery_records()`, `apply_recovery()`, `verify_recovery()`
 - **Critical**: Can recover from single-block corruption; multi-block requires more parity
 
-### GUI (`techcompressor/gui.py`)
+### GUI (`techcompressor/gui.py` - 750 lines)
 Tkinter multi-tab interface with **background threading** (lines 23-32):
 - Uses `ThreadPoolExecutor` + `queue.Queue` for non-blocking operations
 - Progress polling via `_poll_progress()` method (updates UI without freezing)
@@ -151,11 +149,10 @@ Tkinter multi-tab interface with **background threading** (lines 23-32):
 - Progress callbacks: GUI expects `(percent: float, message: str)` format, archiver provides `(current: int, total: int)` - GUI adapts these
 - Keyboard shortcuts: Ctrl+Shift+C (compress), Ctrl+Shift+E (extract)
 
----
 
 ## AI Contributor Quick Guide
 
-This repository is a production Python compression tool (LZW, Huffman, DEFLATE) with AES-256-GCM encryption, a TCAF v2 archive format, a CLI and a Tkinter GUI. Tests (~152) are in `tests/` and must remain green for releases.
+This repository is a production Python compression tool (LZW, Huffman, DEFLATE) with AES-256-GCM encryption, a TCAF v2 archive format, CLI and Tkinter GUI. Tests (168) are in `tests/` and must remain green for releases.
 
 ### Critical APIs - DO NOT BREAK
 - **Primary API**: `techcompressor/core.py` exposes `compress(data, algo, password, persist_dict)` and `decompress(data, algo, password)`. Public signature must remain stable.
@@ -204,14 +201,12 @@ techcompressor-gui
 # Windows release build (runs tests automatically, REQUIRES venv activation)
 .\build_release.ps1
 ```
-.\build_release.ps1
-```
 
 ### File Organization & Responsibilities
 ```
 techcompressor/
-├── core.py          # Algorithm routing, compress/decompress API (850 lines)
-├── archiver.py      # TCAF format, multi-file archives, security (686 lines)
+├── core.py          # Algorithm routing, compress/decompress API (1059 lines)
+├── archiver.py      # TCAF format, multi-file archives, security (858 lines)
 ├── crypto.py        # AES-256-GCM, PBKDF2 key derivation (120 lines)
 ├── recovery.py      # PAR2-style Reed-Solomon error correction (304 lines)
 ├── cli.py           # Argument parsing, command dispatch (380 lines)
