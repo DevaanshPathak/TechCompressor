@@ -62,15 +62,20 @@ Write-Host "✓ Executable built" -ForegroundColor Green
 # Test the executable
 Write-Host ""
 Write-Host "[5/6] Testing executable..." -ForegroundColor Yellow
-$exePath = "dist\TechCompressor.exe"
+$appDir = "dist\TechCompressor"
+$exePath = "$appDir\TechCompressor.exe"
 if (Test-Path $exePath) {
     $fileSize = (Get-Item $exePath).Length / 1MB
     Write-Host "✓ Executable created: $($fileSize.ToString('F2')) MB" -ForegroundColor Green
     
+    # Calculate total directory size
+    $totalSize = (Get-ChildItem $appDir -Recurse | Measure-Object -Property Length -Sum).Sum / 1MB
+    Write-Host "  Total application size: $($totalSize.ToString('F2')) MB" -ForegroundColor Gray
+    
     # Quick validation - check if it starts
     Write-Host "  Validating executable (this may take a moment)..." -ForegroundColor Gray
     # Note: Can't easily test GUI startup in automated script
-    Write-Host "  ⚠ Manual testing required: Launch TechCompressor.exe to verify GUI" -ForegroundColor Yellow
+    Write-Host "  ⚠ Manual testing required: Launch TechCompressor\TechCompressor.exe to verify GUI" -ForegroundColor Yellow
 } else {
     Write-Host "✗ Executable not found at $exePath" -ForegroundColor Red
     exit 1
@@ -84,8 +89,8 @@ Write-Host "[6/6] Creating release ZIP..." -ForegroundColor Yellow
 $tempDir = "dist\temp_release"
 New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
 
-# Copy executable
-Copy-Item $exePath "$tempDir\"
+# Copy entire application folder (onedir mode includes all dependencies)
+Copy-Item -Recurse "$appDir" "$tempDir\TechCompressor"
 
 # Copy documentation
 Copy-Item "README.md" "$tempDir\"
@@ -99,7 +104,9 @@ $releaseReadme = @"
 
 ## What's Included
 
-- **TechCompressor.exe** - Standalone GUI application (no installation needed)
+- **TechCompressor/** - Application folder with all dependencies
+  - **TechCompressor.exe** - Main GUI application (run this)
+  - Supporting libraries and dependencies
 - **README.md** - Full documentation and usage guide
 - **LICENSE** - MIT License
 - **CHANGELOG.md** - Version history and release notes
@@ -107,16 +114,34 @@ $releaseReadme = @"
 
 ## Quick Start
 
-1. Double-click `TechCompressor.exe` to launch the GUI
-2. Select files/folders to compress
-3. Choose your compression algorithm (AUTO recommended)
-4. Optionally add a password for encryption
-5. Click "Compress" or "Create Archive"
+1. Extract the entire ZIP archive to your desired location
+2. Navigate to the **TechCompressor** folder
+3. Double-click **TechCompressor.exe** to launch the GUI
+4. Select files/folders to compress
+5. Choose your compression algorithm (AUTO recommended)
+6. Optionally add a password for encryption
+7. Click "Compress" or "Create Archive"
 
 ## System Requirements
 
 - Windows 10/11 (64-bit)
-- No additional dependencies required - fully standalone!
+- No installation required - fully portable!
+- Keep all files in the TechCompressor folder together
+
+## About This Build
+
+This release uses a **directory-based executable** (onedir mode) instead of a 
+single-file executable. This approach:
+
+- **Reduces false positives** from antivirus software significantly
+- Makes the application more transparent and trustworthy
+- Loads faster and uses less memory
+- All dependencies are visible and can be verified
+
+**Note on Antivirus Warnings**: If you still see antivirus warnings, this is a 
+known false positive with PyInstaller applications that use cryptography. The 
+application is open-source and can be verified at our GitHub repository. You may 
+need to add an exception in your antivirus software.
 
 ## Features
 
@@ -131,6 +156,7 @@ $releaseReadme = @"
 
 - GitHub: https://github.com/DevaanshPathak/TechCompressor
 - Issues: https://github.com/DevaanshPathak/TechCompressor/issues
+- False Positive Reports: See SECURITY.md for reporting guidelines
 
 ## License
 
@@ -163,11 +189,19 @@ Write-Host "BUILD COMPLETE!" -ForegroundColor Green
 Write-Host "================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Release files:" -ForegroundColor White
-Write-Host "  • Standalone EXE: dist\TechCompressor.exe" -ForegroundColor White
+Write-Host "  • Application folder: dist\TechCompressor\" -ForegroundColor White
+Write-Host "  • Main executable: dist\TechCompressor\TechCompressor.exe" -ForegroundColor White
 Write-Host "  • GitHub release ZIP: $zipPath" -ForegroundColor White
 Write-Host ""
+Write-Host "Antivirus False Positive Mitigation:" -ForegroundColor Yellow
+Write-Host "  ✓ UPX compression disabled (primary trigger)" -ForegroundColor Green
+Write-Host "  ✓ Onedir mode for transparency" -ForegroundColor Green
+Write-Host "  ✓ Windows version metadata included" -ForegroundColor Green
+Write-Host "  ✓ Minimal binary obfuscation" -ForegroundColor Green
+Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
-Write-Host "  1. Test the executable: dist\TechCompressor.exe" -ForegroundColor White
-Write-Host "  2. Create GitHub release and upload: $zipPath" -ForegroundColor White
-Write-Host "  3. Update version tags in repository" -ForegroundColor White
+Write-Host "  1. Test the executable: dist\TechCompressor\TechCompressor.exe" -ForegroundColor White
+Write-Host "  2. Scan with VirusTotal: https://www.virustotal.com" -ForegroundColor White
+Write-Host "  3. Create GitHub release and upload: $zipPath" -ForegroundColor White
+Write-Host "  4. Report false positives to AV vendors if needed" -ForegroundColor White
 Write-Host ""

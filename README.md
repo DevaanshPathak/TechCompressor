@@ -75,6 +75,18 @@ pytest
 python -m techcompressor.cli --gui
 ```
 
+### Windows Standalone Release
+
+Pre-built Windows executables are available from [GitHub Releases](https://github.com/DevaanshPathak/TechCompressor/releases).
+
+**Note on Antivirus Software**: PyInstaller executables may trigger false positives in some antivirus software due to self-extracting behavior and cryptography library usage. This is a known issue affecting most PyInstaller applications. See [docs/antivirus_false_positives.md](docs/antivirus_false_positives.md) for:
+- Why this happens
+- What we've done to minimize false positives
+- How to verify the download is safe
+- How to report false positives to AV vendors
+
+The safest approach is to build from source using the instructions above.
+
 ### Basic Usage
 
 **Command Line:**
@@ -497,6 +509,13 @@ pytest -q
 - Extensively tested (137 tests)
 - Used for personal and commercial projects
 - MIT licensed (see LICENSE file)
+
+**Q: Why does my antivirus flag the Windows executable?**
+- This is a **false positive** common with PyInstaller applications
+- The executable uses cryptography libraries which may appear suspicious
+- The source code is fully open and auditable
+- See [docs/antivirus_false_positives.md](docs/antivirus_false_positives.md) for detailed explanation
+- Safest option: Build from source yourself
 
 ### Security Questions
 
