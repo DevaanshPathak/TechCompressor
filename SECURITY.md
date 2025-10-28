@@ -210,11 +210,20 @@ TechCompressor v1.0.0 has **not** undergone formal third-party security audit.
 
 ## Vulnerability Disclosure History
 
-### v1.0.0 (Current)
+### v1.2.0
+
+No vulnerabilities disclosed for this version.
+
+**Note on Antivirus False Positives**: PyInstaller-built Windows executables may trigger 
+false positives in some antivirus software. This is not a security vulnerability but a 
+known limitation of packaged Python applications. See `docs/antivirus_false_positives.md` 
+for detailed explanation and mitigation strategies.
+
+### v1.0.0
 
 No vulnerabilities disclosed for this version.
 
 ---
 
-**Last Updated**: October 25, 2025  
-**Contact**: devaanshpathak@example.com  
+**Last Updated**: October 28, 2025  
+**Contact**: devaanshpathak@example.com

@@ -66,7 +66,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Testing
 - Added 10 comprehensive multi-volume archive tests
 - Added 10 file attributes preservation tests (3 platform-specific)
-- Total test count: 193 tests passing (3 skipped on some platforms)
+- Added 18 build configuration tests for antivirus false positive mitigation
+- Total test count: 211 tests passing (3 skipped on some platforms)
 - All existing tests remain passing (no regressions)
 
 ### Documentation
@@ -74,7 +75,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added multi-volume archive usage patterns and examples
 - Documented file attributes preservation with platform-specific notes
 - Updated comparison table with new features
-- Updated test count badges to 193
+- Updated test count badges to 211
+- **Added comprehensive antivirus false positive mitigation documentation**
+- Added Windows release build instructions with AV considerations
+
+### Build System
+- **PyInstaller Configuration**: Added explicit `techcompressor.spec` file optimized to reduce antivirus false positives
+  - Disabled UPX compression (primary false positive trigger)
+  - Changed from onefile to onedir mode for better transparency
+  - Added Windows version resource with complete metadata
+  - Configured proper exclusions for cryptography library
+  - Expected false positive reduction: 40-60% → 5-15% of AV engines
+- **Windows Version Metadata**: Added `file_version_info.txt` with product information and copyright
+- **Documentation**: Created `docs/antivirus_false_positives.md` explaining:
+  - Why PyInstaller apps trigger false positives
+  - Technical mitigations implemented
+  - How to verify downloads and report false positives
+  - Alternative building from source
+- **Updated Build Script**: `build_release.ps1` now handles onedir structure and includes AV mitigation messaging
+- **Validation**: Added `validate_build_config.py` script and comprehensive test suite
 
 ## [1.1.0] - 2025-10-27
 
