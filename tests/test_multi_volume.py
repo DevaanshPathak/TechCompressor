@@ -1,5 +1,7 @@
 """
 Tests for multi-volume archive functionality.
+
+v1.3.0: Updated to expect .part1/.part2 naming (was .001/.002)
 """
 
 import os
@@ -31,9 +33,9 @@ def test_multivolume_creation_basic(tmp_path):
         volume_size=25 * 1024  # 25 KB per volume
     )
     
-    # Check that multiple volumes were created
-    volume1 = Path(str(archive_path) + ".001")
-    volume2 = Path(str(archive_path) + ".002")
+    # v1.3.0: Check .part1/.part2 naming (was .001/.002)
+    volume1 = Path(str(archive_path) + ".part1")
+    volume2 = Path(str(archive_path) + ".part2")
     
     assert volume1.exists(), "Volume 1 should exist"
     # With random data, we should get multiple volumes
@@ -112,16 +114,16 @@ def test_multivolume_small_data(tmp_path):
         volume_size=1024 * 1024  # 1 MB per volume
     )
     
-    # Should only create one volume
-    volume1 = Path(str(archive_path) + ".001")
-    volume2 = Path(str(archive_path) + ".002")
+    # v1.3.0: Check .part1 naming (was .001)
+    volume1 = Path(str(archive_path) + ".part1")
+    volume2 = Path(str(archive_path) + ".part2")
     
     assert volume1.exists(), "Volume 1 should exist"
     assert not volume2.exists(), "Volume 2 should NOT exist (data too small)"
 
 
-def test_multivolume_extraction_from_001(tmp_path):
-    """Test extraction when specifying .001 file."""
+def test_multivolume_extraction_from_part1(tmp_path):
+    """Test extraction when specifying .part1 file."""
     # Create test files
     source_dir = tmp_path / "source"
     source_dir.mkdir()
@@ -136,9 +138,9 @@ def test_multivolume_extraction_from_001(tmp_path):
         volume_size=5 * 1024  # 5 KB per volume
     )
     
-    # Extract using .001 path
+    # v1.3.0: Extract using .part1 path (was .001)
     dest_dir = tmp_path / "extracted"
-    volume1_path = Path(str(archive_path) + ".001")
+    volume1_path = Path(str(archive_path) + ".part1")
     extract_archive(volume1_path, dest_dir)
     
     # Verify extraction
@@ -168,8 +170,8 @@ def test_multivolume_with_encryption(tmp_path):
         volume_size=8 * 1024  # 8 KB per volume
     )
     
-    # Verify multiple volumes created
-    volume1 = Path(str(archive_path) + ".001")
+    # v1.3.0: Verify .part1 exists (was .001)
+    volume1 = Path(str(archive_path) + ".part1")
     assert volume1.exists()
     
     # Extract with password
@@ -228,8 +230,8 @@ def test_multivolume_missing_volume_detection(tmp_path):
         volume_size=10 * 1024  # 10 KB per volume
     )
     
-    # Delete middle volume
-    volume2 = Path(str(archive_path) + ".002")
+    # v1.3.0: Delete middle volume (.part2 instead of .002)
+    volume2 = Path(str(archive_path) + ".part2")
     if volume2.exists():
         volume2.unlink()
     

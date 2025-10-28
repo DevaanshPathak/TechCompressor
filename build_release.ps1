@@ -59,6 +59,40 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "✓ Executable built" -ForegroundColor Green
 
+# UPX compression (v1.3.0 optimization for size reduction)
+Write-Host ""
+Write-Host "[4.5/6] Compressing executable with UPX..." -ForegroundColor Yellow
+$exePath = "dist\TechCompressor.exe"
+$originalSize = (Get-Item $exePath).Length / 1MB
+
+# Check if UPX is available
+try {
+    $upxCheck = & upx --version 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Running UPX --best --lzma (this may take 30-60 seconds)..." -ForegroundColor Gray
+        & upx --best --lzma $exePath 2>&1 | Out-Null
+        
+        if ($LASTEXITCODE -eq 0) {
+            $compressedSize = (Get-Item $exePath).Length / 1MB
+            $reduction = (($originalSize - $compressedSize) / $originalSize) * 100
+            Write-Host "✓ UPX compression successful" -ForegroundColor Green
+            Write-Host "  Before: $($originalSize.ToString('F2')) MB" -ForegroundColor Gray
+            Write-Host "  After:  $($compressedSize.ToString('F2')) MB" -ForegroundColor Gray
+            Write-Host "  Saved:  $($reduction.ToString('F1'))% reduction" -ForegroundColor Green
+        } else {
+            Write-Host "⚠ UPX compression failed, continuing with uncompressed executable" -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "⚠ UPX not found - skipping compression" -ForegroundColor Yellow
+        Write-Host "  Install UPX for 40-60% size reduction:" -ForegroundColor Gray
+        Write-Host "  choco install upx" -ForegroundColor Gray
+        Write-Host "  or download from: https://upx.github.io/" -ForegroundColor Gray
+    }
+} catch {
+    Write-Host "⚠ UPX not available - skipping compression" -ForegroundColor Yellow
+    Write-Host "  Install with: choco install upx" -ForegroundColor Gray
+}
+
 # Test the executable
 Write-Host ""
 Write-Host "[5/6] Testing executable..." -ForegroundColor Yellow

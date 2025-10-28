@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "techcompressor"
-version = "1.2.0"
+version = "1.3.0"
 description = "Multi-algorithm compression framework with encryption, archiving, and GUI"
 readme = "README.md"
 license = {text = "MIT"}
@@ -29,6 +29,9 @@ requires-python = ">=3.10"
 
 [project.optional-dependencies]
 gui = []  # Tkinter is part of standard library
+windows-acls = [
+    "pywin32>=306; sys_platform == 'win32'",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
