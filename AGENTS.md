@@ -1,7 +1,7 @@
 # AI Agent Development Guide for TechCompressor
 
-**Last Updated**: October 27, 2025  
-**Project Version**: v1.2.0  
+**Last Updated**: October 30, 2025  
+**Project Version**: v1.3.0 (in development - Week 2 complete)  
 **For**: AI Coding Assistants (GitHub Copilot, Cursor, etc.)
 
 ---
@@ -353,7 +353,44 @@ TCAF v2 Archive:
 
 ---
 
-## 🚀 Performance Guidelines
+## � Recent Bug Fixes & Known Issues
+
+### ✅ FIXED: Multi-Volume Space Calculation Bug (Oct 30, 2025)
+
+**Issue**: When creating multi-volume archives with attributes, volumes would exceed their target size by 54 bytes (the TCVOL header size), causing position calculation mismatches during extraction.
+
+**Symptoms**:
+- `UnicodeDecodeError` when extracting multi-volume archives with attributes enabled
+- Error occurred specifically when reading entry table: "utf-8 codec can't decode byte"
+- Only manifested with combination: multi-volume + attributes + STORED mode (incompressible data)
+
+**Root Cause**:
+In `VolumeWriter.write()` (archiver.py line 382), after opening a new volume with a 54-byte TCVOL header, the code incorrectly set:
+```python
+space_left = self.volume_size  # WRONG - ignored header already written
+```
+
+This caused each volume after the first to be 54 bytes larger than intended, breaking the position calculations used by `VolumeWriter.tell()` and `VolumeReader.seek()`.
+
+**Fix**:
+Changed to recalculate space_left accounting for the header:
+```python
+space_left = self.volume_size - self.current_size  # Correct - accounts for header
+```
+
+**Location**: `techcompressor/archiver.py`, line 382 in `VolumeWriter.write()`
+
+**Test Coverage**: `tests/test_file_attributes.py::test_attributes_with_multi_volume`
+
+**Lesson for Agents**:
+- Always recalculate size/space values after state changes (like opening new volumes)
+- Multi-volume logic must account for headers in EVERY volume, not just the first
+- Position calculations must be consistent between writer and reader
+- Test edge cases: multi-volume + features that add metadata/headers
+
+---
+
+## �🚀 Performance Guidelines
 
 ### Memory Management
 ```python
@@ -577,7 +614,7 @@ iterations = 100_000
 Before submitting changes, verify:
 
 - [ ] Virtual environment was activated before all commands
-- [ ] All 193 tests passing (3-4 skipped platform-specific)
+- [ ] All 190 tests passing (3 skipped platform-specific)
 - [ ] No changes to public API signatures
 - [ ] New features have comprehensive tests
 - [ ] Error messages are clear and actionable
@@ -628,14 +665,15 @@ Before submitting changes, verify:
 
 ---
 
-## 📊 Project Statistics (v1.2.0)
+## 📊 Project Statistics (v1.3.0)
 
-- **Lines of Code**: ~5,000 (excluding tests)
+- **Lines of Code**: ~5,200 (excluding tests)
 - **Test Files**: 12 files
-- **Test Count**: 193 passing, 3-4 skipped
+- **Test Count**: 190 passing, 3 skipped (platform-specific)
 - **Test Coverage**: >85%
 - **Algorithms**: 3 (LZW, Huffman, DEFLATE) + STORED mode
 - **Archive Format**: TCAF v2
+- **Multi-Volume**: v1.3.0+ with TCVOL headers (.part1/.part2 naming)
 - **Security**: AES-256-GCM, PBKDF2 (100K iterations)
 - **Python Version**: 3.10+
 - **Dependencies**: cryptography, pyinstaller, pytest, coverage

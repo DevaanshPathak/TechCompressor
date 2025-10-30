@@ -236,9 +236,9 @@ def test_attributes_with_multi_volume(tmp_files, tmp_path):
         volume_size=50 * 1024  # 50KB per volume
     )
     
-    # Should create multiple volumes
-    assert (tmp_path / "archive_vol_attrs.tc.001").exists()
-    assert (tmp_path / "archive_vol_attrs.tc.002").exists()
+    # v1.3.0: Should create multiple volumes with .part1/.part2 naming (not .001/.002)
+    assert (tmp_path / "archive_vol_attrs.tc.part1").exists()
+    assert (tmp_path / "archive_vol_attrs.tc.part2").exists()
     
     # Extract with attributes
     archiver.extract_archive(

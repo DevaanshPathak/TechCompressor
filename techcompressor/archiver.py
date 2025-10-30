@@ -379,7 +379,8 @@ class VolumeWriter:
                 # Current volume is full, open next
                 self._open_volume(self.current_volume + 1)
                 self.total_volumes_estimate = self.current_volume  # Update estimate
-                space_left = self.volume_size
+                # Recalculate space_left accounting for the header just written
+                space_left = self.volume_size - self.current_size
             
             # Write as much as fits in current volume
             to_write = remaining[:space_left]
