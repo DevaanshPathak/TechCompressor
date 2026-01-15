@@ -2,6 +2,7 @@
 TechCompressor Command-Line Interface
 
 Provides command-line access to compression, archiving, and encryption features.
+v2.0.0: Added TUI support and new algorithms (ZSTD, Brotli)
 """
 
 import sys
@@ -29,10 +30,15 @@ def main():
                        version=f'TechCompressor {__version__}')
     parser.add_argument('--gui', action='store_true',
                        help='Launch graphical user interface')
+    parser.add_argument('--tui', action='store_true',
+                       help='Launch terminal user interface (v2.0.0)')
     parser.add_argument('--benchmark', action='store_true',
                        help='Run performance benchmark')
     
     subparsers = parser.add_subparsers(dest='command', help='Command to execute')
+    
+    # TUI command (v2.0.0)
+    tui_parser = subparsers.add_parser('tui', help='Launch Terminal User Interface')
     
     # Archive creation command
     create_parser = subparsers.add_parser('create', aliases=['c'], 
@@ -40,7 +46,7 @@ def main():
     create_parser.add_argument('source', help='Source file or directory')
     create_parser.add_argument('archive', help='Output archive path')
     create_parser.add_argument('--algo', default='AUTO',
-                              choices=['AUTO', 'LZW', 'HUFFMAN', 'DEFLATE'],
+                              choices=['AUTO', 'LZW', 'HUFFMAN', 'DEFLATE', 'ZSTD', 'BROTLI'],
                               help='Compression algorithm (default: AUTO - try all and pick smallest)')
     create_parser.add_argument('--per-file', action='store_true',
                               help='Compress each file separately (default: False)')
@@ -78,7 +84,7 @@ def main():
     compress_parser.add_argument('input', help='Input file')
     compress_parser.add_argument('output', help='Output file')
     compress_parser.add_argument('--algo', default='AUTO',
-                                choices=['AUTO', 'LZW', 'HUFFMAN', 'DEFLATE'],
+                                choices=['AUTO', 'LZW', 'HUFFMAN', 'DEFLATE', 'ZSTD', 'BROTLI'],
                                 help='Compression algorithm (default: AUTO - try all and pick smallest)')
     compress_parser.add_argument('--password', help='Password for encryption')
     
@@ -88,7 +94,7 @@ def main():
     decompress_parser.add_argument('input', help='Input file')
     decompress_parser.add_argument('output', help='Output file')
     decompress_parser.add_argument('--algo', default='AUTO',
-                                  choices=['AUTO', 'LZW', 'HUFFMAN', 'DEFLATE'],
+                                  choices=['AUTO', 'LZW', 'HUFFMAN', 'DEFLATE', 'ZSTD', 'BROTLI'],
                                   help='Compression algorithm (default: AUTO - detect from file header)')
     decompress_parser.add_argument('--password', help='Password for decryption')
     
@@ -124,10 +130,24 @@ def main():
                 print(f"{algo:<12} {elapsed*1000:>8.2f} ms  {ratio:>6.1f}%   {speed:>6.2f} MB/s")
             
             print()
-            print("✅ Benchmark complete!")
+            print("Benchmark complete!")
             return 0
         except Exception as e:
-            print(f"❌ Benchmark failed: {e}", file=sys.stderr)
+            print(f"Benchmark failed: {e}", file=sys.stderr)
+            return 1
+    
+    # Handle --tui flag (v2.0.0)
+    if args.tui:
+        try:
+            from .tui import main as tui_main
+            tui_main()
+            return 0
+        except ImportError as e:
+            print(f"Error: TUI dependencies not available: {e}", file=sys.stderr)
+            print("Install with: pip install techcompressor", file=sys.stderr)
+            return 1
+        except Exception as e:
+            print(f"Error launching TUI: {e}", file=sys.stderr)
             return 1
     
     # Handle --gui flag
@@ -150,6 +170,20 @@ def main():
         return 0
     
     try:
+        # Handle 'tui' subcommand (v2.0.0)
+        if args.command == 'tui':
+            try:
+                from .tui import main as tui_main
+                tui_main()
+                return 0
+            except ImportError as e:
+                print(f"Error: TUI dependencies not available: {e}", file=sys.stderr)
+                print("Install with: pip install techcompressor", file=sys.stderr)
+                return 1
+            except Exception as e:
+                print(f"Error launching TUI: {e}", file=sys.stderr)
+                return 1
+        
         if args.command in ('create', 'c'):
             # Create archive
             print(f"Creating archive: {args.archive}")

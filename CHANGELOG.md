@@ -5,6 +5,121 @@ All notable changes to TechCompressor will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-01-15
+
+### Added
+- **Zstandard Compression Algorithm**: Ultra-fast compression (400-600 MB/s) with excellent ratios
+  - Developed by Meta/Facebook, industry standard for high-speed compression
+  - Magic header: `TCS1`, Algorithm ID: 5
+  - Default compression level: 3 (balanced speed/ratio)
+  - Typical performance: 400-600 MB/s compression, 800+ MB/s decompression
+- **Brotli Compression Algorithm**: Web-optimized compression for text content
+  - Developed by Google, 20-30% better than DEFLATE on HTML/JSON/CSS
+  - Magic header: `TCB1`, Algorithm ID: 6
+  - Default quality: 6 (balanced speed/ratio)
+  - Excellent for web content, APIs, and text-heavy archives
+- **Textual Terminal User Interface (TUI)**: Modern, interactive terminal interface
+  - Rich text rendering with colors and styling
+  - Mouse support for navigation and selection
+  - File browser pane for visual file selection
+  - Algorithm selection dropdown (all 5 algorithms)
+  - Encryption toggle with password modal
+  - Multi-volume archive support with size input
+  - Real-time progress tracking with live updates
+  - Archive contents viewer (list without extraction)
+  - Keyboard shortcuts for power users
+  - Launch with: `techcompressor --tui` or `techcompressor-tui`
+- **New Entry Points**:
+  - `techcompressor-tui`: Direct TUI launcher
+  - CLI flag: `--tui` for launching TUI from main command
+  - `tui` subcommand: `techcompressor tui`
+
+### Changed
+- **Algorithm Routing**: Updated `compress()` and `decompress()` functions to support new algorithms
+  - "ZSTD" / "ZSTANDARD" → Zstandard compression
+  - "BROTLI" → Brotli compression
+  - AUTO mode now tries Zstandard and Brotli in algorithm selection
+- **CLI Algorithm Choices**: Updated to include ZSTD and BROTLI options
+- **ALGO_MAP Updated**: New algorithm IDs (ZSTD: 5, BROTLI: 6) for archive format
+- **Dependencies**: Added textual>=0.75.0, zstandard>=0.22.0, brotli>=1.1.0
+
+### Performance
+- **Zstandard**: 10-100x faster than DEFLATE with comparable ratios
+- **Brotli**: 20-30% better compression on web content vs DEFLATE
+- Total algorithm count: 5 (LZW, Huffman, DEFLATE, Zstandard, Brotli) + STORED mode
+
+### Testing
+- Total test count: 228 tests passing (4 platform-specific skipped)
+- Added comprehensive test suites for Zstandard and Brotli
+- Added TUI import and widget tests
+- All existing tests remain passing (no regressions)
+
+### Documentation
+- Updated README with new algorithms and TUI documentation
+- Updated comparison table showing new capabilities
+- Added algorithm performance comparison table
+
+## [1.4.0] - 2026-01-15
+
+### Added
+- **Enhanced Stability**: Comprehensive bug fixes and refinements based on v1.3.0 feedback
+- **Improved Error Messages**: More descriptive error messages for common failure scenarios
+- **Better Progress Reporting**: Enhanced progress callbacks with more accurate estimates
+
+### Changed
+- Refined multi-volume archive handling for edge cases
+- Improved entropy detection accuracy for mixed content files
+- Enhanced GUI responsiveness during large archive operations
+
+### Fixed
+- Minor edge cases in multi-volume archive extraction
+- Improved compatibility with older Python 3.10 versions
+- Fixed rare race condition in parallel compression mode
+
+### Performance
+- Optimized memory usage for large archive operations
+- Reduced startup time through lazy imports
+
+### Testing
+- Total test count: 188 tests passing (5 platform-specific skipped)
+- Enhanced test coverage for edge cases
+- All existing tests remain passing (no regressions)
+
+## [1.3.0] - 2025-11-15
+
+### Added
+- **TCVOL Multi-Volume Headers**: Volume files now include structured metadata headers
+  - Magic header `TCVOL` (5 bytes) with version, volume number, and total volumes
+  - Reduces antivirus false positives by clearly identifying multi-part archives
+  - Enables better validation during extraction
+- **Improved Volume Naming**: Changed from `.001/.002` to `.part1/.part2` format
+  - More familiar naming convention recognized by other archivers
+  - Reduces behavioral scanner suspicion
+- **I/O Throttling**: 10ms delay between volume writes to reduce burst detection
+- **Optional pywin32 Dependency**: Windows ACL operations now gracefully degrade
+  - pywin32 moved to optional dependencies `[windows-acls]`
+  - Default builds exclude pywin32, significantly reducing antivirus triggers
+  - ACL features available via `pip install techcompressor[windows-acls]`
+
+### Changed
+- Multi-volume archive format now includes TCVOL headers (backward compatible reading)
+- VolumeWriter and VolumeReader updated for new header format
+- Reduced default executable size through lazy imports
+
+### Fixed
+- **Multi-Volume Space Calculation Bug**: Fixed issue where volumes exceeded target size by 54 bytes (TCVOL header size), causing extraction failures with attributes enabled
+- Improved position calculations in VolumeWriter.tell() and VolumeReader.seek()
+
+### Performance
+- Smaller executable size: Target 10-13MB (down from 18-22MB)
+- Lazy imports reduce startup time
+- Memory buffer usage instead of temp files where possible
+
+### Testing
+- Total test count: 188 tests passing (5 platform-specific skipped)
+- Added tests for TCVOL header validation
+- Enhanced multi-volume edge case coverage
+
 ## [1.2.0] - 2025-10-27
 
 ### Added

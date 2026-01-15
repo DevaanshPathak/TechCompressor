@@ -28,27 +28,24 @@ D:\TechCompressor\.venv\Scripts\Activate.ps1
 
 ## Project Overview
 
-TechCompressor is a **production-ready (v1.2.0)** modular Python compression framework with three algorithms (LZW, Huffman, DEFLATE), AES-256-GCM encryption, TCAF v2 archive format with recovery records, advanced file filtering, multi-volume archives, and incremental backups. Developed by **Devaansh Pathak** ([GitHub](https://github.com/DevaanshPathak)).
+TechCompressor is a **production-ready (v2.0.0)** modular Python compression framework with five algorithms (LZW, Huffman, DEFLATE, Zstandard, Brotli), AES-256-GCM encryption, TCAF v2 archive format with recovery records, advanced file filtering, multi-volume archives, incremental backups, and CLI/GUI/TUI interfaces. Developed by **Devaansh Pathak** ([GitHub](https://github.com/DevaanshPathak)).
 
-**Target**: Python 3.10+ | **Status**: Production/Stable | **License**: MIT | **Tests**: 193 passing
+**Target**: Python 3.10+ | **Status**: Production/Stable | **License**: MIT | **Tests**: 228 passing
 
-## New in v1.2.0
-- **Advanced File Filtering**: Exclude patterns (*.tmp, .git/), size limits, date ranges for selective archiving
-- **Multi-Volume Archives**: Split large archives into parts (archive.tc.001, .002, etc.) with configurable volume sizes
-- **Incremental Backups**: Only compress changed files since last archive creation (timestamp-based)
-- **Enhanced Entropy Detection**: Automatically skip compression on already-compressed formats (JPG, PNG, MP4, ZIP, etc.)
-- **Archive Metadata**: User comments, creation date, and creator information in archive headers
-- **File Attributes Preservation**: Windows ACLs and Linux extended attributes support
-
-## Future: v2.0.0 Roadmap (Q2 2026)
+## New in v2.0.0
+- **Zstandard Algorithm**: Ultra-fast compression (400-600 MB/s) with excellent ratios, developed by Meta
+- **Brotli Algorithm**: Web-optimized compression, 20-30% better than DEFLATE for text content
 - **Textual TUI**: Modern terminal user interface with mouse support, file browser, archive inspector
-- **Zstandard Algorithm**: Fast compression with excellent ratios (400-600 MB/s)
-- **Brotli Algorithm**: Web-optimized compression, 20-30% better than DEFLATE for text
-- See `ROADMAP_v2.0.0.md` for complete details (excluded from git via .gitignore)
+- **New Entry Points**: `techcompressor --tui`, `techcompressor-tui`, `techcompressor tui` subcommand
+
+## Previous Releases
+- **v1.4.0**: Enhanced stability, improved error messages, better progress reporting
+- **v1.3.0**: TCVOL multi-volume headers, optional pywin32, .part1/.part2 naming
+- **v1.2.0**: Advanced filtering, multi-volume archives, incremental backups, file attributes
 
 ## Architecture & Component Interaction
 
-### Core Module (`techcompressor/core.py`) - Central API (1059 lines)
+### Core Module (`techcompressor/core.py`) - Central API
 All compression operations flow through these main functions:
 ```python
 def compress(data: bytes, algo: str = "LZW", password: str | None = None, persist_dict: bool = False) -> bytes
@@ -57,39 +54,51 @@ def reset_solid_compression_state() -> None  # Reset dictionary state between ar
 def is_likely_compressed(data: bytes, filename: str | None = None) -> bool  # Entropy + extension check
 ```
 
-**Algorithm routing** (core.py lines 771-828):
-- `algo` parameter: "LZW" | "HUFFMAN" | "DEFLATE" | "AUTO" | "STORED"
+**Algorithm routing** (core.py):
+- `algo` parameter: "LZW" | "HUFFMAN" | "DEFLATE" | "ZSTD" | "ZSTANDARD" | "BROTLI" | "AUTO" | "STORED"
 - STORED (algorithm ID 0): No compression, direct storage for incompressible files
 - AUTO mode smart heuristics (see `compress()` function):
-  - Files > 5MB: Skip DEFLATE (too slow), try only LZW + Huffman
-  - Files > 50MB: Skip Huffman, use only LZW
+  - Files > 5MB: Skip DEFLATE (too slow), try Zstandard, LZW, Huffman
+  - Files > 50MB: Skip Huffman, use Zstandard or LZW
   - High entropy (>0.9) or compressed extension: Use LZW only (already compressed/encrypted)
   - Entropy check: samples first 4KB, calculates `unique_bytes/256` ratio
   - Extension check: detects 40+ compressed formats (JPG, PNG, MP4, ZIP, PDF, etc.)
-- Each algorithm has private implementation: `_lzw_compress()`, `_huffman_compress()`, `_compress_deflate()`
-- **Magic headers** (4 bytes): `TCZ1` (LZW), `TCH1` (Huffman), `TCD1` (DEFLATE), `TCE1` (encrypted), `TCAF` (archive)
+- Each algorithm has private implementation: `_lzw_compress()`, `_huffman_compress()`, `_compress_deflate()`, `_zstd_compress()`, `_brotli_compress()`
+- **Magic headers** (4 bytes): `TCZ1` (LZW), `TCH1` (Huffman), `TCD1` (DEFLATE), `TCS1` (Zstandard), `TCB1` (Brotli), `TCE1` (encrypted), `TCAF` (archive)
 - **Critical**: Decompression validates magic headers to prevent wrong-algorithm errors
 
-**Encryption integration** (core.py lines 823-827, 853-858):
+**Encryption integration**:
 - When `password` is provided, `crypto.encrypt_aes_gcm()` wraps compressed data
 - Decompression auto-detects `TCE1` header and decrypts before algorithm processing
 - No double encryption - encryption only happens at top level
 
 ### Compression Algorithm Details
 
-**LZW** (core.py lines 20-136): Dictionary-based, fast, good for repetitive data
+**Zstandard** (v2.0.0): Ultra-fast compression by Meta
+- Speed: 400-600 MB/s compression, 800+ MB/s decompression
+- Compression level: Default 3 (configurable via `ZSTD_DEFAULT_LEVEL`)
+- Output format: Magic header `TCS1` + zstd-compressed data
+- Algorithm ID: 5
+
+**Brotli** (v2.0.0): Web-optimized compression by Google
+- Ratio: 20-30% better than DEFLATE on text content
+- Quality level: Default 6 (configurable via `BROTLI_DEFAULT_QUALITY`)
+- Output format: Magic header `TCB1` + brotli-compressed data
+- Algorithm ID: 6
+
+**LZW**: Dictionary-based, fast, good for repetitive data
 - Dictionary size: 4096 entries (configurable via `MAX_DICT_SIZE`)
 - Auto-resets dictionary when full (supports unlimited input)
 - Output format: 2-byte big-endian codes (`struct.pack(">H", code)`)
 - **Solid compression**: `persist_dict=True` preserves dictionary between files (10-30% better ratios)
 - **Global state**: `_solid_lzw_dict` and `_solid_lzw_next_code` - reset with `reset_solid_compression_state()`
 
-**Huffman** (core.py lines 139-363): Frequency-based, optimal for non-uniform distributions
+**Huffman**: Frequency-based, optimal for non-uniform distributions
 - Uses heap-based tree construction with `_HuffmanNode` class
 - Serializes tree structure in compressed output for decompression
 - Handles single-unique-byte edge case (assigns code "0")
 
-**DEFLATE** (core.py lines 366-766): Hybrid LZ77 + Huffman
+**DEFLATE**: Hybrid LZ77 + Huffman
 - LZ77 sliding window: 32KB (`DEFAULT_WINDOW_SIZE`), max match: 258 bytes
 - Two-pass: LZ77 finds matches → Huffman encodes results
 - Best compression ratio but slower than LZW

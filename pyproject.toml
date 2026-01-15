@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "techcompressor"
-version = "1.3.0"
-description = "Multi-algorithm compression framework with encryption, archiving, and GUI"
+version = "2.0.0"
+description = "Multi-algorithm compression framework with TUI, encryption, archiving, and modern algorithms"
 readme = "README.md"
 license = {text = "MIT"}
 authors = [{name = "Devaansh Pathak", email = "devaanshpathak@example.com"}]
-keywords = ["compression", "lzw", "huffman", "deflate", "encryption", "archiving"]
+keywords = ["compression", "lzw", "huffman", "deflate", "zstandard", "brotli", "encryption", "archiving", "tui"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
@@ -24,6 +24,9 @@ classifiers = [
 dependencies = [
     "cryptography>=41.0.0",
     "tqdm>=4.65.0",
+    "textual>=0.75.0",
+    "zstandard>=0.22.0",
+    "brotli>=1.1.0",
 ]
 requires-python = ">=3.10"
 
@@ -46,3 +49,4 @@ Issues = "https://github.com/DevaanshPathak/TechCompressor/issues"
 techcompressor = "techcompressor.cli:main"
 techcmp = "techcompressor.cli:main"
 techcompressor-gui = "techcompressor.gui:main"
+techcompressor-tui = "techcompressor.tui:main"

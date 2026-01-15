@@ -39,6 +39,24 @@ def test_smoke_deflate_roundtrip():
     assert len(compressed) < len(data)  # Should compress
 
 
+def test_smoke_zstd_roundtrip():
+    """Quick Zstandard compression roundtrip test (v2.0.0)."""
+    data = b"ZSTD TEST DATA" * 20
+    compressed = compress(data, algo="ZSTD")
+    decompressed = decompress(compressed, algo="ZSTD")
+    assert decompressed == data
+    assert len(compressed) < len(data)  # Should compress
+
+
+def test_smoke_brotli_roundtrip():
+    """Quick Brotli compression roundtrip test (v2.0.0)."""
+    data = b"BROTLI TEST DATA" * 20
+    compressed = compress(data, algo="BROTLI")
+    decompressed = decompress(compressed, algo="BROTLI")
+    assert decompressed == data
+    assert len(compressed) < len(data)  # Should compress
+
+
 def test_smoke_encryption():
     """Quick encryption roundtrip test."""
     data = b"SECRET DATA" * 5
@@ -182,7 +200,7 @@ def test_smoke_version():
     """Quick test that version is accessible."""
     import techcompressor
     assert hasattr(techcompressor, '__version__')
-    assert techcompressor.__version__ == "1.3.0"
+    assert techcompressor.__version__ == "2.0.0"
 
 
 def test_smoke_cli_imports():

@@ -1,103 +1,250 @@
-# TechCompressor v1.2.0 Release Notes
+# TechCompressor v2.0.0 Release Notes
 
-**Release Date**: October 27, 2025  
+**Release Date**: January 15, 2026  
 **Status**: Production/Stable
 
 ## Overview
 
-TechCompressor v1.2.0 completes enterprise-grade backup features: advanced file filtering for selective archiving, multi-volume archives for splitting large datasets, incremental backups for efficient daily workflows, file attributes preservation for complete system backups, and enhanced entropy detection for automatic format recognition. Combined with v1.1.0's solid compression and recovery records, TechCompressor now rivals RAR and WinZip in both features and flexibility while remaining fully open-source.
+TechCompressor v2.0.0 is a major release introducing two new high-performance compression algorithms (Zstandard and Brotli) and a modern Terminal User Interface (TUI) built with Textual. This release dramatically expands TechCompressor's capabilities with industry-leading compression speeds and web-optimized compression ratios.
 
 ## Highlights
 
-### 🗜️ Three Compression Algorithms
+### Five Compression Algorithms
 Choose the algorithm that fits your needs:
-- **LZW**: Lightning-fast dictionary-based compression (3 MB/s), ideal for repetitive data and speed-critical applications
-- **Huffman**: Frequency-based compression optimized for non-uniform distributions (2.5 MB/s)
-- **DEFLATE**: Industry-standard hybrid compression (LZ77 + Huffman) offering the best compression ratios (6 MB/s, ~1% on repetitive data)
+- **Zstandard (NEW)**: Ultra-fast compression at 400-600 MB/s with excellent ratios, developed by Meta
+- **Brotli (NEW)**: Web-optimized compression, 20-30% better than DEFLATE on text/HTML/JSON, developed by Google
+- **DEFLATE**: Industry-standard hybrid compression (LZ77 + Huffman), best compatibility
+- **LZW**: Lightning-fast dictionary-based compression, ideal for repetitive data
+- **Huffman**: Frequency-based compression optimized for non-uniform distributions
 
-### 🔒 Military-Grade Security
-Password-protected compression uses **AES-256-GCM** authenticated encryption with **PBKDF2** key derivation (100,000 iterations). Every encryption generates unique salts and nonces, and includes integrity verification via authentication tags. There are no backdoors or recovery mechanisms—security by design.
+### Modern Terminal User Interface (TUI)
+A rich, interactive terminal interface powered by Textual:
+- **File Browser**: Navigate and select files/folders visually
+- **Algorithm Selection**: Choose from all 5 algorithms via dropdown
+- **Encryption Support**: Toggle encryption with secure password modal
+- **Multi-Volume Support**: Create split archives with custom volume sizes
+- **Archive Inspector**: View archive contents without extraction
+- **Real-time Progress**: Live progress bars and operation status
+- **Keyboard Shortcuts**: Power-user friendly navigation
+- Launch with: `techcompressor --tui` or `techcompressor-tui`
 
-### 📦 Flexible Archiving with Advanced Features (v1.2.0)
-The custom **TCAF v2** (TechCompressor Archive Format) now supports:
-- **Advanced File Filtering**: Exclude patterns (*.tmp, .git/), size limits for selective archiving
-- **Multi-Volume Archives**: Split into parts (archive.tc.001, .002, etc.) with configurable sizes
-- **Incremental Backups**: Only compress changed files since last archive for 10-50x faster backups
+### Military-Grade Security
+Password-protected compression uses **AES-256-GCM** authenticated encryption with **PBKDF2** key derivation (100,000 iterations). Every encryption generates unique salts and nonces, and includes integrity verification via authentication tags. There are no backdoors or recovery mechanisms - security by design.
+
+### Flexible Archiving with Advanced Features
+The custom **TCAF v2** (TechCompressor Archive Format) supports:
+- **Advanced File Filtering**: Exclude patterns (*.tmp, .git/), size limits
+- **Multi-Volume Archives**: Split into parts (archive.tc.part1, .part2, etc.)
+- **Incremental Backups**: Only compress changed files since last archive
 - **Archive Metadata**: User comments, creation date, creator information
-- **File Attributes**: Windows ACLs and Linux/macOS extended attributes preservation
-- **Recovery Records**: PAR2-style error correction (v1.1.0)
-- **Solid Compression**: Dictionary persistence for 10-30% better ratios (v1.1.0)
+- **File Attributes**: Windows ACLs and Linux/macOS extended attributes
+- **Recovery Records**: PAR2-style error correction
+- **Solid Compression**: Dictionary persistence for 10-30% better ratios
 
-### 💻 Dual Interface
-- **CLI**: Full-featured command-line interface with `create`, `extract`, `compress`, `decompress`, `list`, `verify`, and inline `--benchmark` commands
-- **GUI**: User-friendly Tkinter application with background threading, real-time progress bars, password fields, operation cancellation, and developer credits
+### Triple Interface
+- **CLI**: Full-featured command-line with all algorithms and features
+- **GUI**: User-friendly Tkinter application with background threading
+- **TUI (NEW)**: Modern Textual-based terminal interface with rich widgets
 
-### ⚡ Production-Ready
-**193 tests passing** (3 platform-specific skipped). Comprehensive test coverage includes algorithm correctness, encryption validation, archive security, multi-volume handling, file attributes preservation, integration workflows, and performance regression checks. The codebase uses modern Python 3.10+ features with full type hints and extensive documentation.
+### Production-Ready
+**228 tests passing** (4 platform-specific skipped). Comprehensive test coverage includes algorithm correctness, encryption validation, archive security, multi-volume handling, new algorithm validation, TUI imports, and performance regression checks.
 
 ---
 
-## What's New in v1.2.0
+## What's New in v2.0.0
 
-### 🎯 Advanced File Filtering
-Selective archiving with powerful filtering options:
-- **Exclude Patterns**: Skip files matching glob patterns (*.tmp, .git/, __pycache__/)
-- **Size Limits**: `max_file_size` and `min_file_size` parameters filter by file size
-- **Flexible Matching**: Multiple patterns with wildcard support
-- **Use Cases**: Clean backups without build artifacts, logs, or temporary files
+### Zstandard Compression Algorithm
+Ultra-fast compression developed by Meta/Facebook:
+- **Speed**: 400-600 MB/s compression, 800+ MB/s decompression
+- **Ratio**: Comparable to DEFLATE with 10-100x faster speed
+- **Magic Header**: `TCS1`
+- **Algorithm ID**: 5
+- **Default Level**: 3 (balanced speed/ratio)
+- **Use Cases**: Large file compression, real-time streaming, backup operations
 
-Example:
 ```python
+from techcompressor import compress, decompress
+
+# Zstandard compression (fastest)
+compressed = compress(data, algo="ZSTD")
+original = decompress(compressed, algo="ZSTD")
+
+# With encryption
+compressed = compress(data, algo="ZSTD", password="secret")
+```
+
+### Brotli Compression Algorithm
+Web-optimized compression developed by Google:
+- **Ratio**: 20-30% better than DEFLATE on text content
+- **Optimized For**: HTML, JSON, CSS, JavaScript, APIs
+- **Magic Header**: `TCB1`
+- **Algorithm ID**: 6
+- **Default Quality**: 6 (balanced speed/ratio)
+- **Use Cases**: Web content, API responses, text-heavy archives
+
+```python
+# Brotli compression (best for text)
+compressed = compress(html_content, algo="BROTLI")
+original = decompress(compressed, algo="BROTLI")
+```
+
+### Textual Terminal User Interface
+Modern, interactive terminal interface:
+- **Rich Text Rendering**: Colors, styling, and Unicode support
+- **Mouse Support**: Click to select files and buttons
+- **File Browser Pane**: Visual navigation of filesystem
+- **Operation Pane**: Algorithm selection, encryption toggle, volume size
+- **Progress Pane**: Real-time progress bars with status messages
+- **Log Pane**: Operation history and status messages
+- **Modals**: Password input, archive contents viewer, about dialog
+
+```bash
+# Launch TUI
+techcompressor --tui
+techcompressor-tui
+techcompressor tui
+```
+
+---
+
+## Migration from v1.x to v2.0.0
+
+### No Breaking Changes
+v2.0.0 is fully backward compatible with v1.x archives and API. No code changes required.
+
+### New Algorithm Support
+To use new algorithms, simply specify them:
+```python
+# Before (still works)
+compressed = compress(data, algo="DEFLATE")
+
+# New options
+compressed = compress(data, algo="ZSTD")    # Fastest
+compressed = compress(data, algo="BROTLI")  # Best for text
+```
+
+### New Dependencies
+v2.0.0 requires additional dependencies:
+```bash
+pip install textual>=0.75.0 zstandard>=0.22.0 brotli>=1.1.0
+```
+
+---
+
+## Algorithm Comparison
+
+| Algorithm | Speed | Ratio | Best For |
+|-----------|-------|-------|----------|
+| **Zstandard** | 400-600 MB/s | Excellent | Large files, backups, streaming |
+| **Brotli** | 20-50 MB/s | Excellent | HTML, JSON, CSS, web content |
+| **DEFLATE** | 6 MB/s | Excellent | General purpose, compatibility |
+| **LZW** | 3 MB/s | Good | Repetitive data, speed-critical |
+| **Huffman** | 2.5 MB/s | Good | Text, frequency-skewed data |
+
+---
+
+## What Was New in v1.4.0
+
+### Enhanced Stability
+This release focuses on refinement and stability:
+- Fixed minor edge cases in multi-volume archive extraction
+- Improved error messages for common failure scenarios
+- Better progress reporting with more accurate estimates
+- Enhanced GUI responsiveness during large operations
+
+### Performance Improvements
+- Optimized memory usage for large archive operations
+- Reduced startup time through lazy imports
+- Improved entropy detection accuracy for mixed content
+
+### Bug Fixes
+- Improved compatibility with older Python 3.10 versions
+- Fixed rare race condition in parallel compression mode
+- Refined multi-volume handling for edge cases
+
+---
+
+## What Was New in v1.3.0
+
+### TCVOL Multi-Volume Headers
+Volume files now include structured metadata headers to improve reliability and reduce antivirus false positives:
+- Magic header `TCVOL` with version, volume number, and total volumes
+- Changed naming from `.001/.002` to `.part1/.part2` format
+- I/O throttling (10ms delay) between volume writes
+
+### Optional pywin32 Dependency
+Windows ACL operations are now opt-in only:
+- Default builds exclude pywin32, significantly reducing executable size
+- Install with `pip install techcompressor[windows-acls]` for ACL features
+- Graceful degradation when pywin32 not available
+
+---
+
+## Migration from v1.3.0 to v1.4.0
+
+### No Breaking Changes
+v1.4.0 is fully backward compatible with v1.3.0. No code changes required.
+
+### Recommended Actions
+1. Update via pip: `pip install --upgrade techcompressor`
+2. Existing archives remain fully compatible
+3. Multi-volume archives created with v1.2.0 (.001/.002) are still readable
+
+---
+
+## API Reference
+
+### Core Functions
+```python
+from techcompressor import compress, decompress
+
+# Basic compression
+compressed = compress(data, algo="LZW")
+original = decompress(compressed, algo="LZW")
+
+# With encryption
+compressed = compress(data, algo="DEFLATE", password="secret")
+original = decompress(compressed, algo="DEFLATE", password="secret")
+```
+
+### Archive Functions
+```python
+from techcompressor.archiver import create_archive, extract_archive, list_contents
+
+# Create archive with filtering
 create_archive(
     "project/",
     "backup.tc",
-    exclude_patterns=["*.tmp", ".git/", "node_modules/", "__pycache__/"],
-    max_file_size=100*1024*1024  # Skip files > 100MB
+    algo="DEFLATE",
+    password="secret",
+    exclude_patterns=["*.tmp", ".git/", "__pycache__/"],
+    volume_size=650*1024*1024,  # Multi-volume: 650MB parts
+    comment="Weekly backup"
 )
+
+# Extract archive
+extract_archive("backup.tc", "restored/", password="secret")
+
+# List contents
+contents = list_contents("backup.tc")
 ```
 
-### 💾 Multi-Volume Archives
-Split large archives into manageable parts for storage or transfer:
-- **Configurable Volume Size**: Set max size per volume (e.g., 650MB for CD, 4.7GB for DVD)
-- **Sequential Naming**: Automatic naming: archive.tc.001, archive.tc.002, ...
-- **VolumeWriter/VolumeReader Classes**: Transparent multi-volume I/O abstraction
-- **Seamless Extraction**: Extract from first volume, auto-reads subsequent parts
-- **Auto-detection**: Finds .001 file when base path provided
-- **Works Everywhere**: Compatible with all algorithms, encryption, and compression modes
-- **Use Cases**: Backup to multiple USB drives, email-size limits, cloud storage chunks
+---
 
-Example:
-```python
-create_archive(
-    "large_dataset/",
-    "backup.tc",
-    volume_size=650*1024*1024  # Split into 650MB volumes (CD-size)
-)
-# Creates: backup.tc.001, backup.tc.002, backup.tc.003, ...
+## System Requirements
 
-# Extract (auto-detects volumes)
-extract_archive("backup.tc", "restored/")  # Finds backup.tc.001 automatically
-```
+- **Python**: 3.10 or higher
+- **Dependencies**: cryptography>=41.0.0, tqdm>=4.65.0
+- **Optional**: pywin32>=306 (for Windows ACL preservation)
+- **OS**: Windows, Linux, macOS
 
-### 📅 Incremental Backups
-Dramatically faster backups by archiving only changed files:
-- **Timestamp-Based Detection**: Compare modification times against base archive
-- **10-50x Faster**: Daily backups complete in seconds instead of minutes
-- **Reduced Archive Size**: Only store deltas, not full directory snapshots
-- **Base Archive Reference**: `base_archive` parameter specifies reference archive
-- **Compatible with Solid Mode**: Works with both per-file and solid compression
-- **Use Cases**: Daily/weekly backup workflows, version control supplements
+---
 
-Example:
-```python
-# Full backup (Monday)
-create_archive("project/", "backup-full.tc", algo="DEFLATE")
+## Credits
 
-# Incremental backup (Tuesday) - only changed files
-create_archive(
-    "project/",
-    "backup-incremental-tue.tc",
-    incremental=True,
+**Developed by**: Devaansh Pathak  
+**GitHub**: [DevaanshPathak](https://github.com/DevaanshPathak)  
+**License**: MIT
     base_archive="backup-full.tc"
 )
 ```

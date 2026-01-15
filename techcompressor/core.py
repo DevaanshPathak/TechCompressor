@@ -22,6 +22,14 @@ MAGIC_HEADER_DEFLATE = b"TCD1"
 DEFAULT_WINDOW_SIZE = 32768  # 32 KB sliding window
 DEFAULT_LOOKAHEAD = 258  # Maximum match length
 
+# Zstandard Configuration (v2.0.0)
+MAGIC_HEADER_ZSTD = b"TCS1"
+ZSTD_DEFAULT_LEVEL = 3  # Balance of speed and ratio (1-22)
+
+# Brotli Configuration (v2.0.0)
+MAGIC_HEADER_BROTLI = b"TCB1"
+BROTLI_DEFAULT_QUALITY = 6  # Balance of speed and ratio (0-11)
+
 # File extensions that are already compressed (should use STORED mode)
 COMPRESSED_EXTENSIONS = {
     # Images
@@ -845,71 +853,205 @@ def _decompress_deflate(compressed: bytes) -> bytes:
     return bytes(result)
 
 
+# ============================================================================
+# Zstandard (zstd) Compression Implementation (v2.0.0)
+# ============================================================================
+
+def _zstd_compress(data: bytes, level: int = ZSTD_DEFAULT_LEVEL) -> bytes:
+    """
+    Internal Zstandard compression implementation.
+    
+    Zstandard is a modern compression algorithm developed by Facebook/Meta
+    that provides excellent compression ratios with very fast speeds.
+    
+    Args:
+        data: Bytes to compress
+        level: Compression level (1-22, default 3)
+            - 1-3: Fast compression, good for real-time
+            - 4-9: Balanced (default range)
+            - 10-19: High compression
+            - 20-22: Ultra compression (slower)
+    
+    Returns:
+        Compressed bytes
+    """
+    import zstandard as zstd
+    
+    if not data:
+        return b""
+    
+    # Clamp level to valid range
+    level = max(1, min(22, level))
+    
+    compressor = zstd.ZstdCompressor(level=level)
+    compressed = compressor.compress(data)
+    
+    logger.debug(f"Zstandard compressed {len(data)} → {len(compressed)} bytes (level {level})")
+    
+    return compressed
+
+
+def _zstd_decompress(compressed: bytes) -> bytes:
+    """
+    Internal Zstandard decompression implementation.
+    
+    Args:
+        compressed: Zstandard compressed bytes
+    
+    Returns:
+        Original uncompressed bytes
+    """
+    import zstandard as zstd
+    
+    if not compressed:
+        return b""
+    
+    decompressor = zstd.ZstdDecompressor()
+    decompressed = decompressor.decompress(compressed)
+    
+    logger.debug(f"Zstandard decompressed {len(compressed)} → {len(decompressed)} bytes")
+    
+    return decompressed
+
+
+# ============================================================================
+# Brotli Compression Implementation (v2.0.0)
+# ============================================================================
+
+def _brotli_compress(data: bytes, quality: int = BROTLI_DEFAULT_QUALITY) -> bytes:
+    """
+    Internal Brotli compression implementation.
+    
+    Brotli is a modern compression algorithm developed by Google, optimized
+    for web content (HTML, CSS, JavaScript) with excellent text compression.
+    
+    Args:
+        data: Bytes to compress
+        quality: Compression quality (0-11, default 6)
+            - 0-4: Fast compression
+            - 5-9: Balanced (default range)
+            - 10-11: Maximum compression (slower)
+    
+    Returns:
+        Compressed bytes
+    """
+    import brotli
+    
+    if not data:
+        return b""
+    
+    # Clamp quality to valid range
+    quality = max(0, min(11, quality))
+    
+    compressed = brotli.compress(data, quality=quality)
+    
+    logger.debug(f"Brotli compressed {len(data)} → {len(compressed)} bytes (quality {quality})")
+    
+    return compressed
+
+
+def _brotli_decompress(compressed: bytes) -> bytes:
+    """
+    Internal Brotli decompression implementation.
+    
+    Args:
+        compressed: Brotli compressed bytes
+    
+    Returns:
+        Original uncompressed bytes
+    """
+    import brotli
+    
+    if not compressed:
+        return b""
+    
+    decompressed = brotli.decompress(compressed)
+    
+    logger.debug(f"Brotli decompressed {len(compressed)} → {len(decompressed)} bytes")
+    
+    return decompressed
+
+
 def compress(data: bytes, algo: str = "LZW", password: str | None = None, persist_dict: bool = False) -> bytes:
     """
     Compress input data using the specified algorithm.
     
     Args:
         data: Raw bytes to compress
-        algo: Compression algorithm ("LZW", "HUFFMAN", or "DEFLATE" currently supported)
+        algo: Compression algorithm - one of:
+            - "LZW": Fast dictionary-based compression
+            - "HUFFMAN": Frequency-based compression
+            - "DEFLATE": LZ77 + Huffman (best ratio for general data)
+            - "ZSTD": Zstandard - very fast with excellent ratio (v2.0.0)
+            - "BROTLI": Brotli - best for text/web content (v2.0.0)
+            - "AUTO": Automatically select best algorithm
         password: Optional password for encryption
         persist_dict: If True, preserve compression dictionary for next call (solid mode)
     
     Returns:
         Compressed bytes with header
     
-    Format (LZW):
-        - 4 bytes: Magic header "TCZ1"
-        - 2 bytes: Max dictionary size (4096)
-        - N bytes: LZW compressed codewords
-    
-    Format (Huffman):
-        - 4 bytes: Magic header "TCH1"
-        - N bytes: Huffman compressed data with tree
-    
-    Format (DEFLATE):
-        - 4 bytes: Magic header "TCD1"
-        - N bytes: DEFLATE compressed data (LZ77 + Huffman)
+    Format varies by algorithm:
+        - LZW: "TCZ1" + dict_size(2) + compressed data
+        - HUFFMAN: "TCH1" + compressed data with tree
+        - DEFLATE: "TCD1" + LZ77+Huffman compressed data
+        - ZSTD: "TCS1" + zstd compressed data
+        - BROTLI: "TCB1" + brotli compressed data
     """
     algo_upper = algo.upper()
 
     # Support an "AUTO" mode which tries all supported algorithms and picks
     # the smallest compressed result. This usually gives the best compressed
     # size for arbitrary input without the user choosing an algorithm.
-    supported = ("LZW", "HUFFMAN", "DEFLATE", "AUTO")
+    supported = ("LZW", "HUFFMAN", "DEFLATE", "ZSTD", "ZSTANDARD", "BROTLI", "AUTO")
     if algo_upper not in supported:
         raise NotImplementedError(f"Algorithm {algo} not implemented yet.")
+    
+    # Normalize algorithm names
+    if algo_upper == "ZSTANDARD":
+        algo_upper = "ZSTD"
 
     logger.info(f"Starting {algo_upper} compression of {len(data)} bytes")
 
     if algo_upper == "AUTO":
         # Smart AUTO mode: use heuristics to avoid slow compression on large/incompressible files
+        # v2.0.0: Added Zstandard as the preferred fast algorithm
         
-        # For files larger than 5MB, skip DEFLATE (too slow) and only try LZW/Huffman
+        # For files larger than 5MB, skip DEFLATE (too slow) and only try fast algorithms
         skip_deflate = len(data) > 5 * 1024 * 1024
         
         # Enhanced entropy check using helper function
         if is_likely_compressed(data):
-            logger.info("Data appears already compressed - using fast LZW only")
+            logger.info("Data appears already compressed - using fast ZSTD only")
             skip_deflate = True
             skip_huffman = True
+            skip_brotli = True
         else:
             skip_huffman = False
+            skip_brotli = False
         
-        # For very large files (>50MB), skip Huffman too (memory intensive)
+        # For very large files (>50MB), skip Huffman and Brotli (memory intensive / slow)
         if len(data) > 50 * 1024 * 1024:
-            logger.info(f"Large file ({len(data) / (1024*1024):.1f} MB) - using LZW only")
+            logger.info(f"Large file ({len(data) / (1024*1024):.1f} MB) - using ZSTD only")
             skip_deflate = True
             skip_huffman = True
+            skip_brotli = True
         
-        # If we're skipping all advanced algorithms, just use LZW
-        if skip_deflate and skip_huffman:
-            lzw_payload = MAGIC_HEADER_LZW + struct.pack(">H", MAX_DICT_SIZE) + _lzw_compress(data, persist_dict=persist_dict)
-            result = lzw_payload
-            best_algo = "LZW"
+        # If we're skipping all advanced algorithms, use Zstandard (fastest with good ratio)
+        if skip_deflate and skip_huffman and skip_brotli:
+            zstd_payload = MAGIC_HEADER_ZSTD + _zstd_compress(data)
+            result = zstd_payload
+            best_algo = "ZSTD"
         else:
             # Try each algorithm and pick the smallest result (before encryption)
             candidates: list[tuple[str, bytes]] = []
+
+            # Zstandard candidate (v2.0.0 - always try, very fast)
+            try:
+                zstd_payload = MAGIC_HEADER_ZSTD + _zstd_compress(data)
+                candidates.append(("ZSTD", zstd_payload))
+            except Exception:
+                logger.exception("ZSTD pass failed during AUTO mode")
 
             # LZW candidate (always try - fast)
             try:
@@ -925,6 +1067,14 @@ def compress(data: bytes, algo: str = "LZW", password: str | None = None, persis
                     candidates.append(("HUFFMAN", huff_payload))
                 except Exception:
                     logger.exception("Huffman pass failed during AUTO mode")
+
+            # Brotli candidate (v2.0.0 - great for text, skip for large files)
+            if not skip_brotli:
+                try:
+                    brotli_payload = MAGIC_HEADER_BROTLI + _brotli_compress(data)
+                    candidates.append(("BROTLI", brotli_payload))
+                except Exception:
+                    logger.exception("Brotli pass failed during AUTO mode")
 
             # DEFLATE candidate (skip for large files)
             if not skip_deflate:
@@ -962,10 +1112,18 @@ def compress(data: bytes, algo: str = "LZW", password: str | None = None, persis
         # Perform Huffman compression
         compressed_data = _huffman_compress(data)
         result = MAGIC_HEADER_HUFFMAN + compressed_data
-    else:  # DEFLATE
+    elif algo_upper == "DEFLATE":
         # Perform DEFLATE compression (LZ77 + Huffman)
         compressed_data = _compress_deflate(data)
         result = MAGIC_HEADER_DEFLATE + compressed_data
+    elif algo_upper == "ZSTD":
+        # Perform Zstandard compression (v2.0.0)
+        compressed_data = _zstd_compress(data)
+        result = MAGIC_HEADER_ZSTD + compressed_data
+    elif algo_upper == "BROTLI":
+        # Perform Brotli compression (v2.0.0)
+        compressed_data = _brotli_compress(data)
+        result = MAGIC_HEADER_BROTLI + compressed_data
     
     logger.info(f"Compression complete: {len(data)} → {len(result)} bytes "
                 f"({100 * len(result) / max(len(data), 1):.1f}%)")
@@ -985,7 +1143,8 @@ def decompress(data: bytes, algo: str = "LZW", password: str | None = None) -> b
     
     Args:
         data: Compressed bytes with header
-        algo: Compression algorithm ("LZW", "HUFFMAN", or "DEFLATE" currently supported)
+        algo: Compression algorithm - one of:
+            - "LZW", "HUFFMAN", "DEFLATE", "ZSTD", "BROTLI", "AUTO"
         password: Optional password for decryption
     
     Returns:
@@ -1003,9 +1162,13 @@ def decompress(data: bytes, algo: str = "LZW", password: str | None = None) -> b
         data = decrypt_aes_gcm(data, password)
 
     algo_upper = algo.upper()
-    supported = ("LZW", "HUFFMAN", "DEFLATE", "AUTO")
+    supported = ("LZW", "HUFFMAN", "DEFLATE", "ZSTD", "ZSTANDARD", "BROTLI", "AUTO")
     if algo_upper not in supported:
         raise NotImplementedError(f"Algorithm {algo} not implemented yet.")
+    
+    # Normalize algorithm names
+    if algo_upper == "ZSTANDARD":
+        algo_upper = "ZSTD"
 
     logger.info(f"Starting {algo_upper} decompression of {len(data)} bytes")
 
@@ -1024,6 +1187,10 @@ def decompress(data: bytes, algo: str = "LZW", password: str | None = None) -> b
         detected = "HUFFMAN"
     elif magic == MAGIC_HEADER_DEFLATE:
         detected = "DEFLATE"
+    elif magic == MAGIC_HEADER_ZSTD:
+        detected = "ZSTD"
+    elif magic == MAGIC_HEADER_BROTLI:
+        detected = "BROTLI"
     else:
         raise ValueError(f"Invalid magic header: unknown format {magic}")
 
@@ -1049,9 +1216,15 @@ def decompress(data: bytes, algo: str = "LZW", password: str | None = None) -> b
     elif detected == "HUFFMAN":
         compressed_data = data[4:]
         result = _huffman_decompress(compressed_data)
-    else:  # DEFLATE
+    elif detected == "DEFLATE":
         compressed_data = data[4:]
         result = _decompress_deflate(compressed_data)
+    elif detected == "ZSTD":
+        compressed_data = data[4:]
+        result = _zstd_decompress(compressed_data)
+    elif detected == "BROTLI":
+        compressed_data = data[4:]
+        result = _brotli_decompress(compressed_data)
     
     logger.info(f"Decompression complete: {len(data)} → {len(result)} bytes")
     

@@ -31,7 +31,8 @@ VOLUME_HEADER_VERSION = 1  # v1: Initial multi-volume format
 CHUNK_SIZE = 16 * 1024 * 1024  # 16 MB for streaming
 
 # Algorithm ID mapping (0 = STORED for uncompressed data)
-ALGO_MAP = {"STORED": 0, "LZW": 1, "HUFFMAN": 2, "DEFLATE": 3, "ARITHMETIC": 4}
+# v2.0.0: Added ZSTD (5) and BROTLI (6)
+ALGO_MAP = {"STORED": 0, "LZW": 1, "HUFFMAN": 2, "DEFLATE": 3, "ARITHMETIC": 4, "ZSTD": 5, "BROTLI": 6}
 ALGO_REVERSE = {v: k for k, v in ALGO_MAP.items()}
 
 

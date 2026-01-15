@@ -1,7 +1,7 @@
 # AI Agent Development Guide for TechCompressor
 
-**Last Updated**: October 30, 2025  
-**Project Version**: v1.3.0 (in development - Week 2 complete)  
+**Last Updated**: January 15, 2026  
+**Project Version**: v2.0.0  
 **For**: AI Coding Assistants (GitHub Copilot, Cursor, etc.)
 
 ---
@@ -60,23 +60,24 @@ This file contains:
 
 ---
 
-## 📐 Project Architecture
+## Project Architecture
 
 ### Component Hierarchy
 ```
 techcompressor/
-├── core.py          # 🎯 CENTRAL API - compress/decompress routing
-├── archiver.py      # 📦 TCAF format, multi-volume, attributes
-├── crypto.py        # 🔒 AES-256-GCM encryption
-├── recovery.py      # 🛡️ PAR2-style error correction
-├── cli.py           # 💻 Command-line interface
-├── gui.py           # 🎨 Tkinter GUI
-└── utils.py         # 🔧 Logging, shared utilities
+├── core.py          # CENTRAL API - compress/decompress routing
+├── archiver.py      # TCAF format, multi-volume, attributes
+├── crypto.py        # AES-256-GCM encryption
+├── recovery.py      # PAR2-style error correction
+├── cli.py           # Command-line interface
+├── gui.py           # Tkinter GUI
+├── tui.py           # Textual TUI (v2.0.0)
+└── utils.py         # Logging, shared utilities
 ```
 
 ### Data Flow
 ```
-User Input → CLI/GUI → core.compress() → Algorithm → crypto.encrypt_aes_gcm() → Output
+User Input → CLI/GUI/TUI → core.compress() → Algorithm → crypto.encrypt_aes_gcm() → Output
                                ↓
                          archiver.create_archive() (for folders)
                                ↓
@@ -85,20 +86,22 @@ User Input → CLI/GUI → core.compress() → Algorithm → crypto.encrypt_aes_
 
 ---
 
-## 🚨 NEVER BREAK These APIs
+## NEVER BREAK These APIs
 
 ### Public API Contract (Stable Since v1.0.0)
 
 #### `techcompressor.core`
 ```python
-# ✅ STABLE - Do not change signatures
+# STABLE - Do not change signatures
 def compress(data: bytes, algo: str = "LZW", password: str | None = None) -> bytes
 def decompress(data: bytes, algo: str = "LZW", password: str | None = None) -> bytes
 ```
 
+Supported algorithms: "LZW", "HUFFMAN", "DEFLATE", "ZSTD", "ZSTANDARD", "BROTLI", "AUTO", "STORED"
+
 #### `techcompressor.archiver`
 ```python
-# ✅ STABLE - Only add optional parameters with defaults
+# STABLE - Only add optional parameters with defaults
 def create_archive(
     source_path: str | Path,
     archive_path: str | Path,
@@ -119,12 +122,12 @@ def list_contents(archive_path: str | Path) -> List[Dict]
 ```
 
 **Rules:**
-- ✅ Can add new optional parameters (with defaults)
-- ✅ Can add new functions
-- ❌ NEVER change existing parameter names
-- ❌ NEVER change existing parameter types
-- ❌ NEVER remove parameters
-- ❌ NEVER change return types
+- Can add new optional parameters (with defaults)
+- Can add new functions
+- NEVER change existing parameter names
+- NEVER change existing parameter types
+- NEVER remove parameters
+- NEVER change return types
 
 ---
 
@@ -168,7 +171,7 @@ python -c "import techcompressor.archiver; print('OK')"
 pytest -q
 
 # Check test count hasn't decreased
-# Expected: 193 passed, 3-4 skipped (platform-specific)
+# Expected: 188 passed, 5 skipped (platform-specific)
 ```
 
 ---
@@ -189,16 +192,17 @@ def process(data: Optional[bytes]) -> Optional[str]:
 
 ### Magic Headers (4 Bytes, Immutable)
 ```python
-# ✅ Existing headers - DO NOT CHANGE
+# Existing headers - DO NOT CHANGE
 MAGIC_HEADER_LZW = b"TCZ1"
 MAGIC_HEADER_HUFFMAN = b"TCH1"
 MAGIC_HEADER_DEFLATE = b"TCD1"
+MAGIC_HEADER_ZSTD = b"TCS1"      # v2.0.0
+MAGIC_HEADER_BROTLI = b"TCB1"   # v2.0.0
 MAGIC_HEADER_ENCRYPTED = b"TCE1"
 MAGIC_HEADER_ARCHIVE = b"TCAF"
 MAGIC_HEADER_RECOVERY = b"TCRR"
 
-# ✅ Adding new algorithm? Register unique 4-byte header
-MAGIC_HEADER_ZSTD = b"TCS1"  # Example for v2.0.0
+# Adding new algorithm? Register unique 4-byte header
 ```
 
 ### Logging
@@ -614,7 +618,7 @@ iterations = 100_000
 Before submitting changes, verify:
 
 - [ ] Virtual environment was activated before all commands
-- [ ] All 190 tests passing (3 skipped platform-specific)
+- [ ] All 188 tests passing (5 skipped platform-specific)
 - [ ] No changes to public API signatures
 - [ ] New features have comprehensive tests
 - [ ] Error messages are clear and actionable
@@ -665,21 +669,22 @@ Before submitting changes, verify:
 
 ---
 
-## 📊 Project Statistics (v1.3.0)
+## Project Statistics (v2.0.0)
 
-- **Lines of Code**: ~5,200 (excluding tests)
-- **Test Files**: 12 files
-- **Test Count**: 190 passing, 3 skipped (platform-specific)
+- **Lines of Code**: ~6,500 (excluding tests)
+- **Test Files**: 15 files
+- **Test Count**: 228 passing, 4 skipped (platform-specific)
 - **Test Coverage**: >85%
-- **Algorithms**: 3 (LZW, Huffman, DEFLATE) + STORED mode
+- **Algorithms**: 5 (LZW, Huffman, DEFLATE, Zstandard, Brotli) + STORED mode
+- **Interfaces**: CLI, GUI (Tkinter), TUI (Textual)
 - **Archive Format**: TCAF v2
 - **Multi-Volume**: v1.3.0+ with TCVOL headers (.part1/.part2 naming)
 - **Security**: AES-256-GCM, PBKDF2 (100K iterations)
 - **Python Version**: 3.10+
-- **Dependencies**: cryptography, pyinstaller, pytest, coverage
+- **Dependencies**: cryptography, textual, zstandard, brotli, tqdm, pytest, coverage
 
 ---
 
 **Remember**: You're working on production code used by real users. Every change should be thoughtful, tested, and backward compatible. When in doubt, preserve existing behavior and add new features as opt-in.
 
-**Happy coding! 🚀**
+**Happy coding!**

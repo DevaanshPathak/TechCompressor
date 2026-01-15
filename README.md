@@ -1,66 +1,77 @@
 # TechCompressor
 
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/DevaanshPathak/TechCompressor)
+[![Version](https://img.shields.io/badge/version-2.0.0-blue.svg)](https://github.com/DevaanshPathak/TechCompressor)
 [![Python](https://img.shields.io/badge/python-3.10+-green.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-193%20passed-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-228%20passed-brightgreen.svg)](#testing)
 
-**TechCompressor** is a production-ready, modular Python compression framework featuring multiple algorithms, military-grade encryption, solid compression with dictionary persistence, PAR2-style recovery records, advanced file filtering, multi-volume archives, incremental backups, and both CLI and GUI interfaces. Built for performance, security, and RAR-competitive features.
+**TechCompressor** is a production-ready, modular Python compression framework featuring five compression algorithms (LZW, Huffman, DEFLATE, Zstandard, Brotli), military-grade encryption, a modern Terminal User Interface (TUI), solid compression with dictionary persistence, PAR2-style recovery records, advanced file filtering, multi-volume archives, incremental backups, and CLI/GUI/TUI interfaces.
 
 ---
 
-##  Features
+## Features
 
-###  Multiple Compression Algorithms
+### Multiple Compression Algorithms
 - **LZW (Lempel-Ziv-Welch)**: Fast dictionary-based compression, ideal for repetitive data
 - **Huffman Coding**: Optimal for data with non-uniform frequency distributions
 - **DEFLATE**: Industry-standard hybrid (LZ77 + Huffman), best overall compression
+- **Zstandard (v2.0.0)**: Ultra-fast compression (400-600 MB/s) with excellent ratios, developed by Meta
+- **Brotli (v2.0.0)**: Web-optimized compression, 20-30% better than DEFLATE for text content
 - **STORED**: Automatic detection and direct storage of incompressible files
 
-###  Advanced Archive Features (v1.1.0 & v1.2.0)
+### Advanced Archive Features
 - **Solid Compression**: Dictionary persistence across files for 10-30% better ratios
 - **Recovery Records**: PAR2-style Reed-Solomon error correction (0-10% redundancy)
 - **Multi-threaded**: Parallel per-file compression for 2-4x faster archives
 - **Smart AUTO mode**: Entropy detection and algorithm selection heuristics
-- **Advanced File Filtering** (v1.2.0): Exclude patterns (*.tmp, .git/), size limits, date ranges
-- **Multi-Volume Archives** (v1.2.0): Split large archives into parts (archive.tc.001, .002, etc.)
-- **Incremental Backups** (v1.2.0): Only compress changed files since last archive
-- **Enhanced Entropy Detection** (v1.2.0): Auto-skip compression on JPG, PNG, MP4, ZIP, etc.
+- **Advanced File Filtering**: Exclude patterns (*.tmp, .git/), size limits, date ranges
+- **Multi-Volume Archives**: Split large archives into parts (archive.tc.part1, .part2, etc.)
+- **Incremental Backups**: Only compress changed files since last archive
+- **Enhanced Entropy Detection**: Auto-skip compression on JPG, PNG, MP4, ZIP, etc.
 
-###  Military-Grade Encryption
+### Modern Terminal User Interface (v2.0.0)
+- **Textual TUI**: Rich, interactive terminal interface with mouse support
+- **File Browser**: Navigate and select files/folders visually
+- **Archive Inspector**: View archive contents without extraction
+- **Real-time Progress**: Live progress bars and operation status
+- **Keyboard Shortcuts**: Efficient navigation and operations
+- Launch with: `techcompressor --tui` or `techcompressor-tui`
+
+### Military-Grade Encryption
 - **AES-256-GCM**: Authenticated encryption with integrity verification
 - **PBKDF2**: 100,000 iterations for brute-force resistance
 - Password-protected compression with seamless integration
 - No backdoors or recovery mechanisms
 
-###  Archive Management
+### Archive Management
 - **TCAF v2 Format**: Custom TechCompressor Archive Format with backward compatibility
 - Compress entire folders with metadata preservation
 - Supports both per-file and single-stream compression
 - Path traversal protection and security validation
 - Preserves timestamps, permissions, and relative paths
 - Recovery records for archive repair and corruption detection
-- **Archive Metadata** (v1.2.0): User comments, creation date, creator information
-- **File Attributes** (v1.2.0): Windows ACLs and Linux extended attributes preservation
+- Archive metadata: User comments, creation date, creator information
+- File attributes: Windows ACLs and Linux extended attributes preservation
 
-###  Dual Interface
+### Triple Interface
 - **CLI**: Full-featured command-line with benchmarking and verification
 - **GUI**: User-friendly Tkinter interface with background threading
+- **TUI (v2.0.0)**: Modern Textual-based terminal interface with rich widgets
 - **Python API**: Direct module imports for automation scripts
 
-###  Performance Optimized
-- Encryption overhead < 10% for typical use cases
+### Performance Optimized
+- Encryption overhead less than 10% for typical use cases
 - Streaming support for large files (>16MB)
 - Optimized I/O operations and buffer handling
-- Multi-threaded GUI operations (non-blocking)
+- Multi-threaded GUI/TUI operations (non-blocking)
+- **Zstandard**: 400-600 MB/s compression speed
+- **Brotli**: 20-30% better ratios on web content
 
 ---
 
-##  Quick Start
+## Quick Start
 
 ### Installation
-
-> **⚠️ Windows Users (v1.2.0)**: The pre-built executable may trigger antivirus warnings due to new Windows ACL and multi-volume features. This is a **false positive**. See [Antivirus False Positives](#️-antivirus-false-positives-v120-only) for verification steps and workarounds. v1.0.0/v1.1.0 are not affected.
 
 ```bash
 # Clone repository
@@ -70,21 +81,30 @@ cd TechCompressor
 # Install dependencies
 pip install -r requirements.txt
 
+# Install the package (enables CLI commands)
+pip install -e .
+
 # Run tests
 pytest
 
 # Launch GUI
-python -m techcompressor.cli --gui
+techcompressor --gui
+
+# Launch TUI (v2.0.0)
+techcompressor --tui
 ```
 
 ### Basic Usage
 
 **Command Line:**
 ```bash
-# Compress a file
-techcompressor compress input.txt output.tc --algo DEFLATE
+# Compress a file with Zstandard (fastest)
+techcompressor compress input.txt output.tc --algo ZSTD
 
-# Create encrypted archive
+# Compress with Brotli (best for web content)
+techcompressor compress input.html output.tc --algo BROTLI
+
+# Create encrypted archive with DEFLATE
 techcompressor create folder/ archive.tc --algo DEFLATE --password mypassword
 
 # Extract archive
@@ -95,6 +115,9 @@ techcompressor verify archive.tc
 
 # Run performance benchmark
 techcompressor --benchmark
+
+# Launch TUI
+techcompressor --tui
 ```
 
 **Python API:**
@@ -102,309 +125,145 @@ techcompressor --benchmark
 from techcompressor.core import compress, decompress
 from techcompressor.archiver import create_archive, extract_archive
 
-# Simple compression
+# Simple compression with different algorithms
 data = b"Hello, World!"
-compressed = compress(data, algo="DEFLATE")
-original = decompress(compressed, algo="DEFLATE")
+compressed_zstd = compress(data, algo="ZSTD")      # Fastest
+compressed_brotli = compress(data, algo="BROTLI")  # Best for text
+compressed_deflate = compress(data, algo="DEFLATE")  # Industry standard
+
+# Decompress
+original = decompress(compressed_zstd, algo="ZSTD")
 
 # With encryption
-compressed = compress(data, algo="DEFLATE", password="secret")
-original = decompress(compressed, algo="DEFLATE", password="secret")
+compressed = compress(data, algo="ZSTD", password="secret")
+original = decompress(compressed, algo="ZSTD", password="secret")
 
-# Archive folder with all v1.2.0 features
+# Archive folder with all features
 create_archive(
     source_path="my_folder/",
     archive_path="backup.tc",
-    algo="DEFLATE",
+    algo="ZSTD",
     password="secret",
-    per_file=False,  # Single-stream for best compression
-    recovery_percent=5.0,  # v1.1.0: 5% recovery records
-    max_workers=4,  # Parallel compression
-    exclude_patterns=["*.tmp", ".git/", "__pycache__/"],  # v1.2.0: File filtering
-    max_file_size=100*1024*1024,  # v1.2.0: Max 100MB per file
-    min_file_size=1024,  # v1.2.0: Skip files < 1KB
-    incremental=True,  # v1.2.0: Only changed files
-    volume_size=650*1024*1024,  # v1.2.0: Split into 650MB volumes (CD-size)
-    preserve_attributes=True,  # v1.2.0: Windows ACLs / Linux xattrs
-    comment="Monthly backup",  # v1.2.0: Archive metadata
-    creator="Backup Script v2.0"  # v1.2.0: Creator info
+    per_file=False,
+    recovery_percent=5.0,
+    max_workers=4,
+    exclude_patterns=["*.tmp", ".git/", "__pycache__/"],
+    volume_size=650*1024*1024,
+    preserve_attributes=True,
+    comment="Monthly backup",
+    creator="Backup Script v2.0"
 )
 
-# Extract archive with attributes
+# Extract archive
 extract_archive("backup.tc", "restored/", password="secret", restore_attributes=True)
 ```
 
-**GUI Application:**
+**TUI Application (v2.0.0):**
 ```bash
-# Launch GUI
-python -m techcompressor.gui
+# Launch the modern terminal user interface
+techcompressor --tui
 
-# Or via CLI flag
-techcompressor --gui
+# Or via direct command
+techcompressor-tui
 ```
 
 ---
 
-##  Performance & Benchmarks
+## Comparison with Other Archivers
 
-### TechCompressor vs. Industry Standards
-
-How does TechCompressor compare to ZIP, RAR, and 7-Zip? Here's a comprehensive breakdown:
+### Feature Comparison
 
 | Feature | TechCompressor | ZIP | RAR | 7-Zip |
-|---------|---------------|-----|-----|-------|
-| **Open Source** | [YES] MIT License | [YES] Public Domain | [NO] Proprietary | [YES] LGPL |
-| **Compression Algorithms** | LZW, Huffman, DEFLATE | DEFLATE | RAR (proprietary) | LZMA, LZMA2, DEFLATE |
-| **Best Compression Ratio** | ****☆ (99%+ on repetitive) | ***☆☆ | ***** (industry best) | ***** |
-| **Compression Speed** | ****☆ (3-6 MB/s) | ****☆ | **☆☆☆ (slow) | ***☆☆ |
-| **Solid Compression** | [YES] v1.1.0 (10-30% better) | [NO] | [YES] | [YES] |
-| **Recovery Records** | [YES] v1.1.0 (PAR2-style) | [NO] | [YES] | [NO] |
-| **Multi-threading** | [YES] v1.1.0 (per-file) | [LIMITED] Limited | [YES] | [YES] |
-| **Encryption** | AES-256-GCM (100K iterations) | AES-256 (ZipCrypto weak) | AES-256 | AES-256 |
-| **Smart Storage Mode** | [YES] Auto-detects incompressible | [NO] Always compresses | [YES] | [YES] |
-| **Archive Metadata** | [YES] v1.2.0 (comments, dates) | Timestamps | Full metadata | Full metadata |
-| **File Filtering** | [YES] v1.2.0 (patterns, size, date) | [NO] | [LIMITED] Limited | [LIMITED] Limited |
-| **Multi-Volume Archives** | [YES] v1.2.0 (configurable) | [YES] | [YES] | [YES] |
-| **Incremental Backups** | [YES] v1.2.0 (timestamp-based) | [NO] | [LIMITED] Via WinRAR | [NO] |
-| **File Attributes** | [YES] v1.2.0 (ACLs, xattrs) | [LIMITED] Limited | [YES] | [LIMITED] Limited |
-| **Python API** | [YES] Native | [LIMITED] Via zipfile | [NO] | [LIMITED] Via py7zr |
-| **GUI Included** | [YES] Cross-platform | [NO] OS-dependent | [YES] Commercial | [YES] |
-| **Format Compatibility** | TCAF v2 (custom) | Universal | Universal | Universal |
-| **Multi-algorithm Choice** | [YES] 3 algorithms + AUTO | [NO] DEFLATE only | [NO] RAR only | [YES] Multiple |
-| **Use Case** | Development, scripting, automation | General purpose | Maximum compression | Open-source alternative |
+|---------|----------------|-----|-----|-------|
+| Open Source | Yes (MIT) | Yes | No | Yes (LGPL) |
+| Algorithms | 5 + AUTO | 1 | 1 | 3 |
+| Solid Compression | Yes | No | Yes | Yes |
+| Recovery Records | Yes | No | Yes | No |
+| AES-256 Encryption | Yes (GCM) | Yes (weak) | Yes | Yes |
+| Multi-Volume | Yes | Yes | Yes | Yes |
+| Incremental Backup | Yes | No | Limited | No |
+| File Attributes | Yes | Limited | Yes | Limited |
+| Python API | Native | Via zipfile | No | Via py7zr |
+| Terminal UI | Yes | No | No | No |
+| GUI Included | Yes | No | Yes | Yes |
 
-#### **Key Advantages:**
+### Speed Comparison
 
-- **Developer-Friendly**: Native Python API with clean, documented interface
-- **Security-First**: Stronger key derivation (100K iterations vs. ZIP's weak encryption)
-- **Smart Compression**: STORED mode saves time/space on incompressible files (PNGs, videos, archives)
-- **Algorithm Choice**: Pick the best tool for your data (LZW for speed, DEFLATE for ratio, Huffman for text)
-- **Archive Flexibility**: Per-file or single-stream compression modes
-- **Truly Open**: MIT licensed, no restrictions, fully inspectable code
+| Algorithm | Compression Speed | Decompression Speed | Ratio |
+|-----------|-------------------|---------------------|-------|
+| Zstandard | 400-600 MB/s | 800+ MB/s | Excellent |
+| Brotli | 20-50 MB/s | 300+ MB/s | Best for text |
+| DEFLATE | 6 MB/s | 200+ MB/s | Excellent |
+| LZW | 3 MB/s | 50+ MB/s | Good |
+| Huffman | 2.5 MB/s | 50+ MB/s | Good |
 
-#### **When to Use TechCompressor:**
- **Best For:**
+### When to Use TechCompressor
+
+**Best For:**
 - Python applications needing compression
 - Automated backup scripts
-- Development/testing compression algorithms
-- Scenarios requiring strong encryption with password
-- Mixed content (text + images) archives
+- Web content compression (use Brotli)
+- High-speed compression needs (use Zstandard)
+- Development and testing compression algorithms
+- Scenarios requiring strong encryption
+- Mixed content archives
 
-[NO] **Not Ideal For:**
-- Maximum compression ratio (use 7-Zip/RAR)
+**Not Ideal For:**
+- Maximum compression ratio (use 7-Zip LZMA2)
 - Universal format compatibility (use ZIP)
-- Extremely large files >10GB (use specialized tools)
+- Extremely large files over 10GB
 
 ---
 
-##  Algorithm Performance
+## Algorithm Performance
 
-| Algorithm   | Best For         | Speed | Compression | Memory | Notes               |
-| ----------- | ---------------- | ----- | ----------- | ------ | ------------------- |
-| **DEFLATE** | General purpose  | ⭐⭐⭐⭐  | ⭐⭐⭐⭐⭐       | Medium | Recommended default |
-| **LZW**     | Repetitive data  | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐        | Low    | Fastest compression |
-| **Huffman** | Frequency-skewed | ⭐⭐⭐⭐  | ⭐⭐⭐⭐        | Low    | Good for text       |
-
-
-### Typical Performance
-*Tested on 10KB repetitive text data:*
-
-```
-Algorithm    Time         Ratio      Speed
---------------------------------------------------
-DEFLATE      2.33 ms      1.0%       6.14 MB/s     Best
-LZW          4.72 ms      8.9%       3.03 MB/s     Fastest
-HUFFMAN      5.82 ms     43.7%       2.46 MB/s
-```
+| Algorithm | Best For | Speed | Ratio | Memory |
+|-----------|----------|-------|-------|--------|
+| Zstandard | Speed + ratio | Excellent | Excellent | Medium |
+| Brotli | Web/text content | Good | Excellent | Medium |
+| DEFLATE | General purpose | Good | Excellent | Medium |
+| LZW | Repetitive data | Excellent | Good | Low |
+| Huffman | Frequency-skewed | Good | Good | Low |
 
 ### Recommendations by File Type
 
-| File Type | Algorithm | Archive Mode | Reason |
-|-----------|-----------|--------------|--------|
-| **Text/Source Code** | DEFLATE | Single-stream | Best compression for similar content |
-| **Office Documents** | DEFLATE | Per-file | Mixed content with metadata |
-| **Binary/Executables** | LZW | Per-file | Fast, handles binary well |
-| **Media Files** | AUTO | Per-file | Auto-detects incompressible, uses STORED |
-| **Large Files (>100MB)** | DEFLATE | Single-stream | Streaming support, best ratio |
-
-### Run Your Own Benchmarks
-
-```bash
-# Full benchmark suite
-python bench.py
-
-# Quick performance check
-python bench.py --quick
-
-# CLI benchmark
-techcompressor --benchmark
-```
+| File Type | Recommended Algorithm | Archive Mode |
+|-----------|----------------------|--------------|
+| Text/Source Code | Brotli or DEFLATE | Single-stream |
+| HTML/JSON/CSS | Brotli | Single-stream |
+| Office Documents | DEFLATE | Per-file |
+| Binary/Executables | Zstandard or LZW | Per-file |
+| Media Files | STORED (AUTO mode) | Per-file |
+| Large Files (>100MB) | Zstandard | Single-stream |
 
 ---
 
-## ⚠️ Antivirus False Positives (v1.2.0 Only)
-
-### Why Does This Happen?
-
-**TechCompressor v1.2.0 may trigger warnings from Windows Defender and Chrome browser**, while **v1.0.0 and v1.1.0 do not**. This is a **false positive** caused by new features in v1.2.0, not actual malware.
-
-**Important**: ✅ **VirusTotal shows ZERO detections** (all 70+ engines pass). This confirms the file is safe - only Windows Defender's local heuristics are triggering.
-
-**Version-Specific Triggers (Why Only v1.2.0):**
-
-1. **Windows ACL Operations (New in v1.2.0)**:
-   - File attributes preservation accesses Windows Access Control Lists (ACLs)
-   - Uses `pywin32` library to read/write security descriptors
-   - Windows Defender heuristics flag ACL access as "suspicious behavior"
-   - v1.0.0/v1.1.0 didn't touch ACLs → no warnings
-
-2. **Multi-Volume File I/O (New in v1.2.0)**:
-   - Creates multiple sequential files (.001, .002, etc.)
-   - Complex file splitting/joining patterns look "unusual" to local scanners
-   - v1.0.0/v1.1.0 created single files → no pattern matching
-
-3. **Increased Executable Size**:
-   - v1.2.0: ~18-22MB (includes pywin32, multi-volume code)
-   - v1.1.0: ~15-17MB
-   - v1.0.0: ~14-16MB
-   - Larger binaries trigger deeper heuristic analysis
-
-4. **PyInstaller Bundling Pattern**:
-   - Bundled dependencies changed between versions
-   - Windows Defender uses behavioral analysis on first run
-   - v1.0.0/v1.1.0 have established local reputation over time
-
-### Is TechCompressor Safe?
-
-**YES - This is definitively a false positive.** Here's the proof:
-
-**1. VirusTotal Scan Results (CRITICAL PROOF)**
-- ✅ **0 detections out of 70+ antivirus engines** (as of October 2025)
-- ✅ Scanned by: Microsoft Defender (cloud), Kaspersky, Bitdefender, McAfee, Norton, Avast, AVG, ESET, Trend Micro, and 60+ others
-- ✅ All major vendors confirm: **CLEAN**
-- 🔗 Verify yourself: Upload to [VirusTotal.com](https://www.virustotal.com/)
-
-**Why does Windows Defender flag it locally but not on VirusTotal?**
-- Windows Defender uses **local heuristics** (behavioral analysis on your PC)
-- VirusTotal uses **cloud definitions** (crowd-sourced intelligence)
-- Local heuristics are more aggressive but less accurate → false positives
-- Cloud definitions have global context → accurate results
-
-**2. Check the SHA256 Hash**
-```powershell
-# Windows PowerShell
-Get-FileHash TechCompressor.exe -Algorithm SHA256
-
-# Compare against official hash (published in release notes)
-```
-
-**3. Source Code Verification**
-- All code is open source: https://github.com/DevaanshPathak/TechCompressor
-- Build from source yourself: `.\build_release.ps1`
-- Compare your build's hash with official release
-
-### How to Use TechCompressor Safely
-
-**Option 1: Add Exclusion (Recommended)**
-
-**Since VirusTotal confirms the file is clean, adding an exclusion is completely safe:**
-
-```powershell
-# Windows Defender - PowerShell (Administrator)
-Add-MpPreference -ExclusionPath "C:\Path\To\TechCompressor.exe"
-
-# Verify exclusion
-Get-MpPreference | Select-Object -ExpandProperty ExclusionPath
-```
-
-**Option 2: Use v1.1.0 Instead**
-- Download v1.1.0 from releases (no Windows Defender warnings)
-- You'll lose: multi-volume archives, file attributes, incremental backups
-- Core compression features work identically
-
-**Option 3: Build from Source**
-```powershell
-# Clone repository
-git clone https://github.com/DevaanshPathak/TechCompressor.git
-cd TechCompressor
-
-# Activate virtual environment
-.venv\Scripts\Activate.ps1
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Build executable (requires PyInstaller)
-.\build_release.ps1
-
-# Your self-built executable won't trigger warnings (no signature mismatch)
-```
-
-### Why Don't We Code-Sign?
-
-**Code signing certificates cost $200-$500/year** and require a legal entity (not available for open-source hobby projects). 
-
-**However**: Since VirusTotal shows **0 detections from 70+ engines**, the file is objectively safe. The Windows Defender local heuristic issue will likely resolve itself over time as more users download and report it as a false positive.
-
-### Reporting False Positives to Microsoft
-
-**Since VirusTotal confirms the file is clean, you can confidently report this to Microsoft:**
-
-1. **Microsoft Defender False Positive Form**: https://www.microsoft.com/en-us/wdsi/filesubmission
-   - Submit the executable with SHA256 hash
-   - Category: "I believe this file is incorrectly detected"
-   - Include VirusTotal link showing 0 detections
-
-2. **The more users report it, the faster Microsoft will whitelist it.**
-
-3. **Star the GitHub repo** (social proof helps build trust): https://github.com/DevaanshPathak/TechCompressor
-
-**This issue affects ONLY v1.2.0** due to new Windows ACL and multi-volume features. Earlier versions (v1.0.0, v1.1.0) do not trigger warnings because they don't perform these operations.
-
-**Good News**: VirusTotal's perfect score (0 detections) means this is purely a local Windows Defender heuristics issue, not a real security concern.
-
-### What About v1.3.0?
-
-We're working on v1.3.0 (Q1 2026) to eliminate these Windows Defender triggers **without paid code signing**:
-
-**Planned Fixes (100% Free):**
-1. **Optional pywin32**: ACL operations become opt-in only (no bundled pywin32 in default build) → **Removes primary trigger**
-2. **Smaller Executable**: 35-45% size reduction (10-13MB vs 18-22MB) → Less aggressive scanning
-3. **Refactored I/O Patterns**: Less "suspicious" multi-volume file operations → Avoid behavioral detection
-4. **Submit to Microsoft**: Proactive false positive reporting before release → Build reputation
-5. **Transparent Builds**: GitHub Actions CI/CD with public logs → User trust
-
-**Expected Result**: Windows Defender heuristics will stop flagging the executable (based on file size reduction and behavior changes).
-
----
-
-##  Security Features
+## Security Features
 
 ### Encryption Details
 - **Algorithm**: AES-256-GCM (Galois/Counter Mode)
 - **Key Derivation**: PBKDF2-HMAC-SHA256
-- **Iterations**: 100,000 (adjustable, default for security)
+- **Iterations**: 100,000 (adjustable)
 - **Key Size**: 256 bits
 - **Salt**: 16 bytes (random per encryption)
 - **Nonce**: 12 bytes (random per encryption)
 - **Authentication Tag**: 16 bytes
 
 ### Security Best Practices
-- Use strong, unique passwords (12+ characters)  
-- Store passwords in a password manager  
-- No password = permanent data loss (no recovery)  
-- Encrypted archives include integrity verification  
-- Path traversal protection prevents malicious archives  
-- Symlinks rejected to avoid infinite loops  
+- Use strong, unique passwords (12+ characters)
+- Store passwords in a password manager
+- No password recovery - keep backups of critical data
+- Encrypted archives include integrity verification
+- Path traversal protection prevents malicious archives
 
 ### Security Warnings
-- **Password Loss = Data Loss**: No backdoors or recovery mechanisms  
-- **Compression Leaks Info**: Data patterns visible despite encryption  
-- **PBKDF2 Intentionally Slow**: ~50-100ms for key derivation (security feature)  
+- **Password Loss = Data Loss**: No backdoors or recovery mechanisms
+- **Compression Leaks Info**: Data patterns visible despite encryption
+- **PBKDF2 Intentionally Slow**: ~50-100ms for key derivation (security feature)
 
 ---
 
-##  Documentation
+## Documentation
 
 ### Command-Line Interface
 
@@ -413,6 +272,7 @@ We're working on v1.3.0 (Q1 2026) to eliminate these Windows Defender triggers *
 techcompressor --version           # Show version
 techcompressor --benchmark         # Run performance test
 techcompressor --gui               # Launch GUI
+techcompressor --tui               # Launch TUI
 techcompressor --help              # Show help
 ```
 
@@ -440,26 +300,6 @@ techcompressor list ARCHIVE
 techcompressor verify ARCHIVE
 ```
 
-**Examples:**
-```bash
-# Compress with DEFLATE
-techcompressor compress file.txt file.tc --algo DEFLATE
-
-# Create encrypted archive (single-stream)
-techcompressor create project/ backup.tc --algo DEFLATE --password "secure123"
-
-# Extract with password
-techcompressor extract backup.tc restored/ --password "secure123"
-
-# Verify archive
-techcompressor verify backup.tc
-[YES] Valid TCAF archive
-[YES] Contains 42 file(s)
-   Original: 1,234,567 bytes
-   Compressed: 345,678 bytes (28.0%)
-[YES] Archive verification passed!
-```
-
 ### Python API
 
 **Core Compression:**
@@ -467,117 +307,59 @@ techcompressor verify backup.tc
 from techcompressor.core import compress, decompress
 
 # Basic compression
-compressed = compress(data, algo="LZW")
-original = decompress(compressed, algo="LZW")
+compressed = compress(data, algo="ZSTD")
+original = decompress(compressed, algo="ZSTD")
 
 # With password
 compressed = compress(data, algo="DEFLATE", password="secret")
 original = decompress(compressed, algo="DEFLATE", password="secret")
 
-# Available algorithms: "LZW", "HUFFMAN", "DEFLATE"
+# Available algorithms: "LZW", "HUFFMAN", "DEFLATE", "ZSTD", "BROTLI", "AUTO"
 ```
 
 **Archiver:**
 ```python
 from techcompressor.archiver import create_archive, extract_archive, list_contents
 
-# Create archive with v1.2.0 features
+# Create archive
 create_archive(
     source_path="folder/",
     archive_path="backup.tc",
-    algo="DEFLATE",              # Compression algorithm
-    password="secret",           # Optional encryption
-    per_file=False,              # False = single-stream (better compression)
-    recovery_percent=5.0,        # v1.1.0: PAR2-style recovery (5% redundancy)
-    max_workers=4,               # Parallel compression threads
-    exclude_patterns=["*.tmp"],  # v1.2.0: Exclude files by pattern
-    max_file_size=100*1024*1024, # v1.2.0: Max file size (100MB)
-    min_file_size=1024,          # v1.2.0: Min file size (1KB)
-    volume_size=650*1024*1024,   # v1.2.0: Split into 650MB volumes
-    preserve_attributes=True,    # v1.2.0: Save ACLs/xattrs
-    incremental=True,            # v1.2.0: Only changed files
-    comment="Backup 2025-10-27", # v1.2.0: Archive comment
-    creator="Backup Script",     # v1.2.0: Creator info
-    progress_callback=None       # Optional callback(current, total)
-)
-
-# Extract archive with attribute restoration
-extract_archive(
-    archive_path="backup.tc",      # Or backup.tc.001 for multi-volume
-    dest_path="output/",
+    algo="ZSTD",
     password="secret",
-    restore_attributes=True,       # v1.2.0: Restore ACLs/xattrs
-    progress_callback=None
+    per_file=False,
+    recovery_percent=5.0,
+    max_workers=4,
+    exclude_patterns=["*.tmp"],
+    volume_size=650*1024*1024,
+    preserve_attributes=True,
+    comment="Backup description",
+    creator="Script name"
 )
 
-# List contents (no extraction)
+# Extract archive
+extract_archive("backup.tc", "output/", password="secret", restore_attributes=True)
+
+# List contents
 contents = list_contents("backup.tc")
-for entry in contents:
-    if 'name' in entry:  # File entry
-        print(f"{entry['name']}: {entry['size']} bytes → {entry['compressed_size']} bytes")
-    elif 'metadata' in entry:  # Archive metadata
-        print(f"Created: {entry['metadata'].get('creation_date')}")
-        print(f"Comment: {entry['metadata'].get('comment')}")
 ```
-```
-
-**GUI Application:**
-```python
-from techcompressor.gui import TechCompressorApp
-
-# Launch GUI programmatically
-app = TechCompressorApp()
-app.run()
-```
-
-### GUI Features
-
-**Compress Tab:**
-- Browse file or folder to compress
-- Choose output archive location
-- Select algorithm (LZW, Huffman, DEFLATE)
-- Toggle per-file archive mode
-- Enter password with show/hide
-- Real-time progress bar and log
-
-**Extract Tab:**
-- Browse archive to extract
-- Choose destination folder
-- Enter decryption password
-- Progress tracking with file list
-- Cancel support
-
-**Settings Tab:**
-- Compression level adjustment
-- Default archive mode selection
-- Help text and tooltips
-
-**Logs Tab:**
-- View all application logs
-- Auto-scroll to latest
-- Clear logs button
-
-**Keyboard Shortcuts:**
-- `Ctrl+Shift+C`: Quick compress
-- `Ctrl+Shift+E`: Quick extract
 
 ---
 
-##  Testing
+## Testing
 
 ### Test Suite
 
 **Coverage:**
-- 193 tests passing (3 skipped on some platforms)
-- Core compression algorithms (LZW, Huffman, DEFLATE)
+- 228 tests passing (4 skipped on some platforms)
+- Core compression algorithms (LZW, Huffman, DEFLATE, Zstandard, Brotli)
 - Encryption and key derivation
-- Archive creation and extraction (per-file & single-stream)
-- Multi-volume archives (10 tests)
-- File attributes preservation (10 tests, 3 platform-specific)
-- GUI components (headless mode)
-- Performance and timing
+- Archive creation and extraction
+- Multi-volume archives
+- File attributes preservation
+- TUI components
+- Performance validation
 - Integration tests
-- Edge cases and error handling
 
 **Run Tests:**
 ```bash
@@ -590,135 +372,45 @@ pytest tests/test_lzw.py -v
 # With coverage
 pytest --cov=techcompressor --cov-report=html
 
-# Performance tests only
-pytest tests/test_perf_sanity.py -v
-
 # Quick test
 pytest -q
 ```
 
-**Test Categories:**
-- `test_lzw.py`: LZW compression (16 tests)
-- `test_huffman.py`: Huffman coding (20 tests)
-- `test_deflate.py`: DEFLATE compression (21 tests)
-- `test_crypto.py`: Encryption and security (15 tests)
-- `test_archiver.py`: Archive management (28 tests - includes v1.2.0 features)
-- `test_multi_volume.py`: Multi-volume archives (10 tests)
-- `test_file_attributes.py`: File attributes preservation (10 tests)
-- `test_integration.py`: Cross-algorithm tests (34 tests)
-- `test_gui_basic.py`: GUI components (11 tests)
-- `test_perf_sanity.py`: Performance validation (6 tests)
-- `test_release_smoke.py`: Pre-release sanity checks (14 tests)
-- `test_sanity.py`: Import validation (1 test)
-- `test_gui_basic.py`: GUI components (11 tests)
-- `test_perf_sanity.py`: Performance checks (6 tests)
-
 ---
 
-##  FAQ
-
-### General Questions
-
-**Q: Which algorithm should I use?**
-- **General purpose**: DEFLATE (best compression ratio)
-- **Speed priority**: LZW (fastest compression)
-- **Text/code projects**: DEFLATE with single-stream
-- **Binary/media files**: LZW with per-file mode
-
-**Q: What's the difference between per-file and single-stream?**
-- **Per-file**: Each file compressed independently (good for random access)
-- **Single-stream**: All files concatenated then compressed (better compression)
-- Use per-file for mixed content, single-stream for similar files
-
-**Q: Can I use this in production?**
-- Yes! Version 1.0.0 is production-ready
-- Extensively tested (137 tests)
-- Used for personal and commercial projects
-- MIT licensed (see LICENSE file)
-
-### Security Questions
-
-**Q: Why is encryption slow?**
-- PBKDF2 uses 100,000 iterations for security
-- First encryption takes ~50-100ms for key derivation
-- This protects against brute-force attacks
-- Subsequent operations are faster
-
-**Q: How do I recover a lost password?**
-- **You cannot**. This is by design for security
-- No backdoors or recovery mechanisms
-- Always store passwords securely
-- Consider keeping unencrypted backups of critical data
-
-**Q: Is TechCompressor secure?**
-- Uses industry-standard AES-256-GCM
-- PBKDF2 with 100,000 iterations
-- Authenticated encryption prevents tampering
-- However, compression can leak some data patterns
-
-### Technical Questions
-
-**Q: Why does the GUI freeze?**
-- It shouldn't! All operations run in background threads
-- If frozen, it's a bug - please report with reproduction steps
-- Check Logs tab for error messages
-
-**Q: Can I cancel a long operation?**
-- **GUI**: Click "Cancel" button (graceful shutdown in 1-2 seconds)
-- **CLI**: Press `Ctrl+C` (immediate termination)
-- Partial files may remain (safe to delete)
-
-**Q: How do I install Tkinter?**
-- **Windows/macOS**: Included with Python by default
-- **Linux (Debian/Ubuntu)**: `sudo apt-get install python3-tk`
-- **Linux (Fedora)**: `sudo dnf install python3-tkinter`
-
-**Q: What file formats are supported?**
-- **Input**: Any file type (binary safe)
-- **Output**: `.tc` (TechCompressor format)
-- Archives use TCAF (TechCompressor Archive Format)
-- Compressed files have format-specific headers
-
----
-
-##  Development
+## Development
 
 ### Project Structure
 
 ```
 TechCompressor/
-├── techcompressor/          # Main package
-│   ├── __init__.py         # Version and exports
-│   ├── core.py             # Compression algorithms
-│   ├── crypto.py           # Encryption (AES-256-GCM)
-│   ├── archiver.py         # Archive management (TCAF)
-│   ├── cli.py              # Command-line interface
-│   ├── gui.py              # Tkinter GUI
-│   └── utils.py            # Logging and utilities
-├── tests/                   # Test suite (137 tests)
-├── bench.py                 # Benchmark tool
-├── requirements.txt         # Dependencies
-├── pyproject.toml          # Package configuration
-├── LICENSE                  # MIT License
-└── README.md               # This file
+|-- techcompressor/          # Main package
+|   |-- __init__.py          # Version and exports
+|   |-- core.py              # Compression algorithms
+|   |-- crypto.py            # Encryption (AES-256-GCM)
+|   |-- archiver.py          # Archive management (TCAF)
+|   |-- cli.py               # Command-line interface
+|   |-- gui.py               # Tkinter GUI
+|   |-- tui.py               # Textual TUI
+|   |-- recovery.py          # Recovery records
+|   +-- utils.py             # Logging and utilities
+|-- tests/                   # Test suite (228 tests)
+|-- bench.py                 # Benchmark tool
+|-- requirements.txt         # Dependencies
+|-- pyproject.toml           # Package configuration
+|-- LICENSE                  # MIT License
++-- README.md                # This file
 ```
 
 ### Requirements
 
-- **Python**: >= 3.10
+- **Python**: 3.10 or higher
 - **Dependencies**:
-  - `cryptography>=41.0.0` - AES encryption
-  - `tqdm>=4.65.0` - Progress bars
-- **Optional**: Tkinter (GUI, included with most Python installations)
-
-### Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new features
-4. Ensure all tests pass (`pytest`)
-5. Submit a pull request
+  - cryptography>=41.0.0 - AES encryption
+  - tqdm>=4.65.0 - Progress bars
+  - textual>=0.75.0 - TUI framework
+  - zstandard>=0.22.0 - Zstandard compression
+  - brotli>=1.1.0 - Brotli compression
 
 ### Building from Source
 
@@ -732,34 +424,13 @@ pytest
 # Run benchmarks
 python bench.py
 
-# Build wheel
-python -m build
+# Build executable
+.\build_release.ps1
 ```
 
 ---
 
-##  Roadmap
-
-### Version 1.0.0 (Current) [YES]
-- [YES] LZW, Huffman, DEFLATE algorithms
-- [YES] AES-256-GCM encryption
-- [YES] TCAF archive format
-- [YES] CLI and GUI interfaces
-- [YES] Comprehensive test suite
-- [YES] Performance benchmarks
-- [YES] Cross-platform support
-
-### Future Enhancements 
-- Arithmetic coding algorithm
-- Brotli/Zstandard integration
-- Parallel compression for multi-core
-- Cloud storage integration
-- Python package on PyPI
-- Standalone executables (PyInstaller)
-
----
-
-##  License
+## License
 
 This project is licensed under the MIT License.
 
@@ -789,29 +460,26 @@ SOFTWARE.
 
 ---
 
-##  Acknowledgments
+## Acknowledgments
 
 - **LZW Algorithm**: Terry Welch (1984)
 - **Huffman Coding**: David A. Huffman (1952)
 - **DEFLATE Format**: Phil Katz, RFC 1951 (1996)
-- **Cryptography**: Python `cryptography` library
-- **Testing**: pytest framework
-- **GUI**: Python Tkinter
+- **Zstandard**: Yann Collet, Meta/Facebook
+- **Brotli**: Google
+- **Textual**: Textualize team
+- **Cryptography**: Python cryptography library
 
 ---
 
-##  Contact & Support
+## Contact and Support
 
 - **GitHub**: [DevaanshPathak/TechCompressor](https://github.com/DevaanshPathak/TechCompressor)
 - **Issues**: [Report bugs or request features](https://github.com/DevaanshPathak/TechCompressor/issues)
-- **License**: MIT (see LICENSE file)
+- **Developer**: Devaansh Pathak
 
 ---
 
-<div align="center">
-
-**TechCompressor 1.0.0** - Built with  for efficient, secure compression
+**TechCompressor v2.0.0** - Efficient, secure compression for Python
 
 [![Star on GitHub](https://img.shields.io/github/stars/DevaanshPathak/TechCompressor?style=social)](https://github.com/DevaanshPathak/TechCompressor)
-
-</div>
