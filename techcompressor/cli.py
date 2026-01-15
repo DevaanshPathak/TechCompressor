@@ -216,7 +216,7 @@ def main():
             )
             elapsed = time.perf_counter() - start_time
             
-            print(f"\n✅ Archive created successfully: {args.archive}")
+            print(f"\n[OK] Archive created successfully: {args.archive}")
             if hasattr(args, 'volume_size') and args.volume_size:
                 print(f"   (Multi-volume archive - check for .001, .002, etc.)")
             print(f"   Time: {elapsed:.3f}s")
@@ -239,7 +239,7 @@ def main():
             )
             elapsed = time.perf_counter() - start_time
             
-            print(f"\n✅ Archive extracted successfully to: {args.dest}")
+            print(f"\n[OK] Archive extracted successfully to: {args.dest}")
             print(f"   Time: {elapsed:.3f}s")
         
         elif args.command in ('list', 'l'):
@@ -255,9 +255,13 @@ def main():
             total_compressed = 0
             
             for entry in contents:
+                # Skip metadata entries (they don't have 'name' key)
+                if 'metadata' in entry or 'name' not in entry:
+                    continue
+                    
                 name = entry['name']
-                size = entry['size']
-                compressed = entry['compressed_size']
+                size = entry.get('size', 0)
+                compressed = entry.get('compressed_size', 0)
                 ratio = (compressed / max(size, 1)) * 100
                 
                 total_size += size
@@ -272,14 +276,14 @@ def main():
         
         elif args.command == 'compress':
             # Compress single file
-            print(f"Compressing: {args.input} → {args.output}")
+            print(f"Compressing: {args.input} -> {args.output}")
             print(f"Algorithm: {args.algo}")
             if args.password:
                 print("Encryption: enabled")
             
             input_path = Path(args.input)
             if not input_path.exists():
-                print(f"❌ Error: Input file not found: {args.input}", file=sys.stderr)
+                print(f"[ERROR] Input file not found: {args.input}", file=sys.stderr)
                 return 1
             
             start_time = time.perf_counter()
@@ -292,19 +296,19 @@ def main():
             
             ratio = (len(compressed) / max(len(data), 1)) * 100
             speed = (len(data) / (1024 * 1024)) / elapsed if elapsed > 0 else 0
-            print(f"\n✅ Compressed: {len(data):,} → {len(compressed):,} bytes ({ratio:.1f}%)")
+            print(f"\n[OK] Compressed: {len(data):,} -> {len(compressed):,} bytes ({ratio:.1f}%)")
             print(f"   Time: {elapsed:.3f}s | Speed: {speed:.2f} MB/s")
         
         elif args.command == 'decompress':
             # Decompress single file
-            print(f"Decompressing: {args.input} → {args.output}")
+            print(f"Decompressing: {args.input} -> {args.output}")
             print(f"Algorithm: {args.algo}")
             if args.password:
                 print("Decryption: enabled")
             
             input_path = Path(args.input)
             if not input_path.exists():
-                print(f"❌ Error: Input file not found: {args.input}", file=sys.stderr)
+                print(f"[ERROR] Input file not found: {args.input}", file=sys.stderr)
                 return 1
             
             start_time = time.perf_counter()
@@ -315,7 +319,7 @@ def main():
             output_path = Path(args.output)
             output_path.write_bytes(data)
             
-            print(f"\n✅ Decompressed: {len(compressed):,} → {len(data):,} bytes in {elapsed:.3f}s")
+            print(f"\n[OK] Decompressed: {len(compressed):,} -> {len(data):,} bytes in {elapsed:.3f}s")
         
         elif args.command == 'verify':
             # Verify archive integrity
@@ -323,7 +327,7 @@ def main():
             
             archive_path = Path(args.archive)
             if not archive_path.exists():
-                print(f"❌ Error: Archive not found: {args.archive}", file=sys.stderr)
+                print(f"[ERROR] Archive not found: {args.archive}", file=sys.stderr)
                 return 1
             
             # Check magic header
@@ -331,33 +335,33 @@ def main():
                 magic = f.read(4)
             
             if magic == b"TCAF":
-                print("✅ Valid TCAF archive")
+                print("[OK] Valid TCAF archive")
                 
                 # List contents to verify structure
                 contents = list_contents(str(archive_path))
-                print(f"✅ Contains {len(contents)} file(s)")
+                print(f"[OK] Contains {len(contents)} file(s)")
                 
-                total_size = sum(entry['size'] for entry in contents)
-                total_compressed = sum(entry['compressed_size'] for entry in contents)
+                total_size = sum(entry.get('size', 0) for entry in contents if 'name' in entry)
+                total_compressed = sum(entry.get('compressed_size', 0) for entry in contents if 'name' in entry)
                 ratio = (total_compressed / max(total_size, 1)) * 100
                 
                 print(f"   Original: {total_size:,} bytes")
                 print(f"   Compressed: {total_compressed:,} bytes ({ratio:.1f}%)")
-                print("\n✅ Archive verification passed!")
+                print("\n[OK] Archive verification passed!")
             else:
                 # Check if it's a compressed file
                 if magic[:4] in [b"TCZ1", b"TCH1", b"TCD1", b"TCE1"]:
-                    print("✅ Valid compressed file")
+                    print("[OK] Valid compressed file")
                     print(f"   Format: {magic.decode('ascii', errors='replace')}")
-                    print("\n✅ File verification passed!")
+                    print("\n[OK] File verification passed!")
                 else:
-                    print(f"❌ Unknown format: {magic}")
+                    print(f"[ERROR] Unknown format: {magic}")
                     return 1
         
         return 0
     
     except Exception as e:
-        print(f"\n❌ Error: {e}", file=sys.stderr)
+        print(f"\n[ERROR] {e}", file=sys.stderr)
         logger.exception("CLI command failed")
         return 1
 

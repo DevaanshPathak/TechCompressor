@@ -22,6 +22,23 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+class TestGUIImports:
+    """Test GUI module imports."""
+
+    def test_gui_module_imports(self):
+        """Test that GUI module can be imported."""
+        from techcompressor import gui
+        assert hasattr(gui, 'main')
+        assert hasattr(gui, 'TechCompressorApp')
+        assert hasattr(gui, 'GUILogHandler')
+
+    def test_gui_constants(self):
+        """Test GUI module has expected constants/imports."""
+        from techcompressor.gui import compress, decompress
+        assert callable(compress)
+        assert callable(decompress)
+
+
 def test_gui_loads():
     """Test that GUI application initializes without errors (headless mode)."""
     try:
@@ -97,6 +114,25 @@ def test_gui_logging_handler():
         # Verify message appears in widget
         content = text_widget.get('1.0', tk.END)
         assert 'Test log message' in content
+        
+    finally:
+        root.destroy()
+
+
+def test_gui_log_handler_formatting():
+    """Test GUILogHandler message formatting."""
+    try:
+        root = tk.Tk()
+        root.withdraw()
+    except Exception as e:
+        pytest.skip(f"Tkinter not available or misconfigured: {e}")
+    
+    try:
+        text_widget = tk.Text(root)
+        handler = GUILogHandler(text_widget)
+        
+        # Check formatter is set
+        assert handler.formatter is not None
         
     finally:
         root.destroy()

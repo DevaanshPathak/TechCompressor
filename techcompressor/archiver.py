@@ -432,7 +432,7 @@ class VolumeReader:
         Args:
             first_volume_path: Path to first volume (.part1/.001) or base archive path
         """
-        self.first_volume_path = first_volume_path
+        self.first_volume_path = Path(first_volume_path) if isinstance(first_volume_path, str) else first_volume_path
         self.volume_paths = []
         self.current_volume_idx = 0
         self.current_file = None
