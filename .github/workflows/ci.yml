@@ -66,11 +66,8 @@ jobs:
         run: |
           coverage run -m pytest
           coverage report -m
-          coverage xml
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
-        with:
-          files: coverage.xml
-          fail_ci_if_error: false
-        continue-on-error: true
+          
+      - name: Display coverage summary
+        run: |
+          echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
+          coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
