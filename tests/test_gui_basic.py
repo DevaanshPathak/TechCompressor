@@ -6,12 +6,20 @@ Uses headless mode (tk.Tk().withdraw()) for testing without display.
 """
 
 import pytest
+import os
+import sys
 import tkinter as tk
 import threading
 import time
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 from techcompressor.gui import TechCompressorApp, GUILogHandler
+
+# Skip all GUI tests on CI or macOS (Tkinter hangs in headless environments)
+pytestmark = pytest.mark.skipif(
+    os.environ.get('CI') == 'true' or sys.platform == 'darwin',
+    reason="GUI tests skipped on CI/macOS (Tkinter hangs in headless mode)"
+)
 
 
 def test_gui_loads():
